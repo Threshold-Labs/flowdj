@@ -1,0 +1,2642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowDJ — Music That Matches Your Momentum</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #14141f;
+    --surface2: #1e1e2e;
+    --accent: #7c5bf5;
+    --accent2: #f55b9a;
+    --accent3: #5bf5b9;
+    --warn: #f5a623;
+    --danger: #f55b5b;
+    --text: #e8e8f0;
+    --text-dim: #6e6e8a;
+  }
+
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Top bar ── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 14px; }
+  .logo {
+    font-size: 14px; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .topbar .dot { width: 6px; height: 6px; border-radius: 50%; background: #555; transition: all 0.3s; }
+  .topbar .dot.live { background: var(--accent3); box-shadow: 0 0 8px var(--accent3); }
+  .topbar-status { font-size: 11px; color: var(--text-dim); }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+  .local-badge {
+    font-size: 10px; padding: 3px 7px; border-radius: 5px;
+    border: 1px solid rgba(91,245,185,0.3); color: var(--accent3);
+    background: rgba(91,245,185,0.06); display: none;
+  }
+  .local-badge.active { display: inline-block; }
+  .local-badge.drift  { border-color: rgba(245,166,35,0.4); color: var(--warn); background: rgba(245,166,35,0.06); }
+
+  .btn-sm {
+    padding: 5px 12px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: transparent; color: var(--text-dim);
+    font-size: 11px; font-family: inherit; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-sm.active { border-color: var(--accent2); color: var(--accent2); background: rgba(245,91,154,0.08); }
+  .btn-sm.play-btn { border-color: var(--accent3); color: var(--accent3); }
+  .btn-sm.play-btn.playing { background: rgba(91,245,185,0.08); }
+  .btn-sm.mic-active { border-color: var(--accent2); color: var(--accent2); background: rgba(245,91,154,0.08); position: relative; }
+  .btn-sm.mic-active::before { content:''; position:absolute; top:-1px; right:-1px; width:5px; height:5px; border-radius:50%; background:var(--accent2); }
+
+  .mic-level-wrap { display: none; align-items: center; gap: 3px; height: 16px; padding: 0 4px; }
+  .mic-level-wrap.active { display: flex; }
+  .mic-bar { width: 2px; border-radius: 1px; background: var(--accent2); height: 4px; transition: height 0.06s; opacity: 0.3; }
+  .mic-bar.hot { opacity: 1; }
+
+  /* ── Flow metrics strip ── */
+  .flow-strip {
+    display: flex; align-items: stretch; padding: 0 20px; gap: 1px;
+    height: 68px; flex-shrink: 0;
+    background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .flow-metric {
+    flex: 1; display: flex; flex-direction: column; justify-content: center;
+    padding: 6px 10px; position: relative; overflow: hidden;
+  }
+  .flow-metric::after { content:''; position:absolute; right:0; top:20%; bottom:20%; width:1px; background:rgba(255,255,255,0.04); }
+  .flow-metric:last-child::after { display: none; }
+  .flow-metric .label { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); margin-bottom: 1px; }
+  .flow-metric .value { font-size: 22px; font-weight: 200; font-variant-numeric: tabular-nums; transition: color 0.5s; line-height: 1.1; }
+  .flow-metric .sub { font-size: 9px; color: var(--text-dim); margin-top: 1px; }
+
+  /* ── Main split ── */
+  .main-split { flex: 1; display: flex; min-height: 0; }
+
+  /* ── Workspace (left) ── */
+  .workspace { flex: 1; display: flex; flex-direction: column; min-width: 0; border-right: 1px solid rgba(255,255,255,0.04); position: relative; }
+  .workspace-header {
+    padding: 10px 20px; font-size: 10px; text-transform: uppercase; letter-spacing: 2px;
+    color: var(--text-dim); border-bottom: 1px solid rgba(255,255,255,0.04);
+    display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
+  }
+  .workspace-header .word-count { color: var(--accent); }
+  .workspace-header .project-badge {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .workspace-header .project-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    transition: background 0.5s, box-shadow 0.5s;
+  }
+  #workspace-editor {
+    flex: 1; background: transparent; border: none; color: var(--text);
+    font-family: inherit; font-size: 14px; line-height: 1.8;
+    padding: 20px; resize: none; outline: none; overflow-y: auto;
+    transition: border-color 0.5s;
+  }
+  #workspace-editor::placeholder { color: rgba(255,255,255,0.12); }
+  #workspace-editor::-webkit-scrollbar { width: 4px; }
+  #workspace-editor::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+  /* Drift border glow on workspace */
+  .workspace.drifting { box-shadow: inset 0 0 40px rgba(245, 166, 35, 0.04); }
+  .workspace.off-topic { box-shadow: inset 0 0 60px rgba(245, 91, 91, 0.06); }
+
+  /* ── Sidebar (right) ── */
+  .sidebar { width: 320px; display: flex; flex-direction: column; flex-shrink: 0; }
+
+  .viz-wrap { position: relative; height: 140px; flex-shrink: 0; }
+  #visualizer { width: 100%; height: 100%; display: block; }
+  .viz-label { position: absolute; bottom: 8px; left: 12px; font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); }
+  .viz-bpm { position: absolute; bottom: 8px; right: 12px; font-size: 10px; color: var(--text-dim); }
+  .viz-bpm span { font-size: 16px; font-weight: 400; color: var(--text); }
+
+  /* Flow zone */
+  .flow-zone { padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.04); flex-shrink: 0; }
+  .flow-zone-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); margin-bottom: 6px; }
+  .flow-zone-bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.05); position: relative; overflow: hidden; }
+  .flow-zone-fill { height: 100%; border-radius: 3px; width: 0%; transition: width 0.5s ease, background 0.5s; background: var(--accent); }
+  .flow-zone-labels { display: flex; justify-content: space-between; margin-top: 3px; font-size: 8px; color: var(--text-dim); }
+  .zone-name { font-size: 12px; font-weight: 600; margin-top: 4px; transition: color 0.5s; }
+
+  /* ── Project focus section ── */
+  .project-section { padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.04); flex-shrink: 0; }
+  .section-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); margin-bottom: 6px; }
+
+  .project-select {
+    width: 100%; padding: 6px 10px; border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.06); background: var(--surface);
+    color: var(--text); font-size: 11px; font-family: inherit;
+    cursor: pointer; outline: none; margin-bottom: 6px;
+    -webkit-appearance: none;
+  }
+  .project-select:focus { border-color: var(--accent); }
+
+  /* Focus bar */
+  .focus-bar-wrap { margin-top: 6px; }
+  .focus-bar-track { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.05); position: relative; overflow: hidden; }
+  .focus-bar-fill { height: 100%; border-radius: 3px; width: 50%; transition: width 0.8s ease, background 0.5s; background: var(--accent3); }
+  .focus-bar-labels { display: flex; justify-content: space-between; margin-top: 3px; font-size: 8px; color: var(--text-dim); }
+  .focus-status {
+    font-size: 11px; margin-top: 4px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .focus-status .focus-state { font-weight: 600; transition: color 0.5s; }
+  .focus-status .focus-hint { font-size: 9px; color: var(--text-dim); max-width: 180px; text-align: right; transition: color 0.5s; }
+
+  /* Project keywords display */
+  .project-keywords {
+    display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px;
+  }
+  .kw-tag {
+    font-size: 9px; padding: 2px 6px; border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.06);
+    color: var(--text-dim); transition: all 0.3s;
+  }
+  .kw-tag.hit { border-color: var(--accent3); color: var(--accent3); background: rgba(91,245,185,0.06); }
+
+  /* ── Focus anchor ── */
+  .anchor-section { margin-top: 8px; }
+  .anchor-chip {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 8px; border-radius: 6px; margin-bottom: 4px;
+    background: rgba(124,91,245,0.08); border: 1px solid rgba(124,91,245,0.25);
+    font-size: 10px; cursor: default;
+  }
+  .anchor-chip .anchor-note { color: var(--accent); font-size: 13px; flex-shrink: 0; }
+  .anchor-chip .anchor-label { flex: 1; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .anchor-chip .anchor-remove { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 11px; padding: 0 2px; flex-shrink: 0; line-height: 1; }
+  .anchor-chip .anchor-remove:hover { color: var(--danger); }
+  #anchorSearch {
+    width: 100%; padding: 5px 8px; margin-top: 4px;
+    border-radius: 5px; border: 1px solid rgba(255,255,255,0.08);
+    background: var(--surface2); color: var(--text);
+    font-family: inherit; font-size: 10px;
+  }
+  #anchorSearch:focus { border-color: var(--accent); outline: none; }
+  .anchor-results {
+    max-height: 150px; overflow-y: auto; margin-top: 3px;
+    border: 1px solid rgba(255,255,255,0.06); border-radius: 6px;
+    background: var(--surface);
+  }
+  .anchor-result {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 8px; cursor: pointer; font-size: 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .anchor-result:last-child { border-bottom: none; }
+  .anchor-result:hover { background: rgba(255,255,255,0.04); }
+  .anchor-result img { width: 26px; height: 26px; border-radius: 3px; object-fit: cover; flex-shrink: 0; }
+  .anchor-result .ar-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .anchor-result .ar-artist { font-size: 9px; color: var(--text-dim); }
+
+  /* Custom project modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(10,10,15,0.85);
+    z-index: 200; display: none; align-items: center; justify-content: center;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--surface); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px; padding: 24px; width: 380px; max-width: 90vw;
+  }
+  .modal h3 { font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+  .modal label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); margin-bottom: 4px; margin-top: 12px; }
+  .modal input, .modal textarea {
+    width: 100%; padding: 8px 12px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.08); background: var(--bg);
+    color: var(--text); font-size: 12px; font-family: inherit; outline: none;
+  }
+  .modal textarea { height: 60px; resize: vertical; }
+  .modal input:focus, .modal textarea:focus { border-color: var(--accent); }
+  .modal-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+  .modal-actions button {
+    padding: 7px 16px; border-radius: 8px; font-size: 11px;
+    font-family: inherit; cursor: pointer; border: 1px solid rgba(255,255,255,0.08);
+    background: transparent; color: var(--text-dim); transition: all 0.2s;
+  }
+  .modal-actions .primary { border-color: var(--accent); color: var(--accent); background: rgba(124,91,245,0.08); }
+  .modal-actions button:hover { opacity: 0.8; }
+
+  /* Vibe presets */
+  .vibe-section { padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.04); flex-shrink: 0; }
+  .vibe-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+  .vibe-chip {
+    padding: 4px 9px; border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: transparent; font-size: 10px; font-family: inherit;
+    color: var(--text-dim); cursor: pointer; transition: all 0.2s;
+  }
+  .vibe-chip:hover { border-color: rgba(255,255,255,0.15); color: var(--text); }
+  .vibe-chip.active { border-color: var(--accent); color: var(--accent); background: rgba(124,91,245,0.08); }
+
+  /* Log */
+  .dj-log {
+    flex: 1; overflow-y: auto; padding: 10px 16px;
+    display: flex; flex-direction: column; gap: 3px; min-height: 0;
+  }
+  .dj-log::-webkit-scrollbar { width: 3px; }
+  .dj-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+  .log-entry { font-size: 11px; color: var(--text-dim); line-height: 1.4; animation: fadeIn 0.3s; }
+  .log-entry.flow { color: var(--accent3); }
+  .log-entry.shift { color: var(--accent); }
+  .log-entry.user { color: var(--accent2); }
+  .log-entry.drift { color: var(--warn); }
+  .log-entry.refocus { color: var(--accent3); }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:translateY(0); } }
+
+  /* Sidebar input */
+  .sidebar-input { padding: 8px 16px; border-top: 1px solid rgba(255,255,255,0.04); flex-shrink: 0; display: flex; gap: 6px; }
+  .sidebar-input input {
+    flex: 1; background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
+    padding: 7px 12px; color: var(--text); font-size: 11px; font-family: inherit; outline: none;
+  }
+  .sidebar-input input:focus { border-color: var(--accent); }
+  .sidebar-input input::placeholder { color: rgba(255,255,255,0.15); }
+
+  /* Sparkline */
+  .sparkline-wrap { height: 28px; padding: 0 20px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.04); position: relative; }
+  #sparkline { width: 100%; height: 100%; display: block; }
+
+  /* Start overlay */
+  .start-overlay {
+    position: fixed; inset: 0; background: rgba(10,10,15,0.97);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 100; transition: opacity 0.5s;
+  }
+  .start-overlay.hidden { opacity: 0; pointer-events: none; }
+  .start-overlay h2 {
+    font-size: 28px; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent3));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 6px; font-family: inherit;
+  }
+  .start-overlay p { color: var(--text-dim); margin-bottom: 24px; font-size: 13px; max-width: 400px; text-align: center; line-height: 1.5; }
+  .start-btn {
+    padding: 12px 32px; border-radius: 12px;
+    border: 1px solid var(--accent); background: rgba(124,91,245,0.1);
+    color: var(--accent); cursor: pointer; font-size: 14px; font-family: inherit;
+    transition: all 0.3s;
+  }
+  .start-btn:hover { background: rgba(124,91,245,0.2); transform: scale(1.03); }
+
+  @media (max-width: 800px) {
+    .main-split { flex-direction: column; }
+    .sidebar { width: 100%; height: 50%; border-top: 1px solid rgba(255,255,255,0.04); }
+    .workspace { border-right: none; }
+  }
+
+  /* ── Threshold / Spotify Connect ── */
+  .connect-btn.linked { border-color: #1DB954 !important; color: #1DB954 !important; }
+  .connect-btn.linked:hover { background: rgba(29,185,84,0.08); }
+  .connect-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  }
+  .connect-backdrop.open { opacity: 1; pointer-events: all; }
+  .connect-modal {
+    background: var(--surface); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px; padding: 24px; width: 360px; font-family: inherit;
+  }
+  .connect-modal h3 { font-size: 14px; font-weight: 600; margin-bottom: 4px; color: var(--text); }
+  .connect-modal p { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-bottom: 14px; }
+  .connect-modal p a { color: var(--accent); text-decoration: none; }
+  .connect-modal input {
+    width: 100%; background: var(--surface2); border: 1px solid rgba(255,255,255,0.08);
+    color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit;
+    font-size: 12px; outline: none; margin-bottom: 10px; box-sizing: border-box;
+  }
+  .connect-modal input:focus { border-color: var(--accent); }
+  .connect-status { font-size: 11px; margin-bottom: 10px; padding: 6px 10px; border-radius: 6px; }
+  .connect-status.ok { background: rgba(29,185,84,0.1); color: #1DB954; }
+  .connect-status.err { background: rgba(245,91,91,0.1); color: var(--danger); }
+  .connect-modal .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .connect-modal .modal-actions button {
+    padding: 6px 16px; border-radius: 8px; font-family: inherit;
+    font-size: 12px; cursor: pointer; border: 1px solid rgba(255,255,255,0.08);
+    background: transparent; color: var(--text-dim); transition: all 0.2s;
+  }
+  .connect-modal .modal-actions button.primary {
+    background: rgba(29,185,84,0.15); border-color: #1DB954; color: #1DB954;
+  }
+  .connect-modal .modal-actions button.primary:hover { background: rgba(29,185,84,0.25); }
+  .connect-modal .modal-actions button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Now Playing ── */
+  .now-playing {
+    align-items: center; gap: 10px;
+    padding: 8px 12px; margin: 0 8px 8px;
+    background: var(--surface2); border-radius: 10px;
+    border: 1px solid rgba(29,185,84,0.25);
+  }
+  .now-playing-art {
+    width: 36px; height: 36px; border-radius: 6px;
+    background: rgba(255,255,255,0.05); flex-shrink: 0; object-fit: cover;
+  }
+  .now-playing-info { flex: 1; min-width: 0; }
+  .now-playing-track { font-size: 11px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now-playing-artist { font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .now-playing-skip { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 4px; flex-shrink: 0; transition: color 0.2s; }
+  .now-playing-skip:hover { color: #1DB954; }
+  .spotify-dot { width: 5px; height: 5px; border-radius: 50%; background: #1DB954; flex-shrink: 0; box-shadow: 0 0 6px #1DB954; animation: pulse-green 2s ease-in-out infinite; }
+  @keyframes pulse-green { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+</style>
+</head>
+<script src="https://sdk.scdn.co/spotify-player.js"></script>
+<body>
+
+<div class="start-overlay" id="startOverlay">
+  <h2>FlowDJ</h2>
+  <p>Music that responds to your typing rhythm and keeps you on-task. Pick a project, start typing — drift off-topic and the music will nudge you back.</p>
+  <button class="start-btn" id="startBtn">Start session</button>
+</div>
+
+<!-- Custom project modal -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal">
+    <h3>New Project Focus</h3>
+    <label>Name</label>
+    <input type="text" id="projName" placeholder="e.g. Thesis Chapter 3">
+    <label>Focus keywords (comma-separated)</label>
+    <textarea id="projKeywords" placeholder="e.g. methodology, sampling, survey, participants, hypothesis, data collection"></textarea>
+    <label>Drift keywords (things that pull you off-topic)</label>
+    <input type="text" id="projDrift" placeholder="e.g. twitter, reddit, shopping, news">
+    <label>Preferred vibe</label>
+    <select class="project-select" id="projVibe">
+      <option value="focus">Deep Focus</option>
+      <option value="chill">Chill</option>
+      <option value="energy">Energy</option>
+      <option value="dreamy">Dreamy</option>
+      <option value="dark">Dark</option>
+      <option value="jazz">Jazz</option>
+    </select>
+    <div class="modal-actions">
+      <button id="modalCancel">Cancel</button>
+      <button class="primary" id="modalSave">Add project</button>
+    </div>
+  </div>
+</div>
+
+<!-- Threshold connect modal -->
+<div class="connect-backdrop" id="connectBackdrop">
+  <div class="connect-modal">
+    <h3>Connect your Spotify</h3>
+    <p>FlowDJ uses Threshold to access your Spotify data. You stay in control — authorize once, revoke anytime.</p>
+    <div id="connectStatus" class="connect-status" style="display:none"></div>
+    <button class="primary" id="connectViaThreshold" style="width:100%;padding:10px;border-radius:10px;border:1px solid #1DB954;background:rgba(29,185,84,0.12);color:#1DB954;font-family:inherit;font-size:13px;cursor:pointer;margin-bottom:10px;">
+      Connect via Threshold
+    </button>
+    <details style="margin-bottom:8px;">
+      <summary style="font-size:11px;color:var(--text-dim);cursor:pointer;">Already have a token? Paste it here</summary>
+      <input type="text" id="thldTokenInput" placeholder="thld_ct_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" style="margin-top:8px;">
+      <div class="modal-actions" style="margin-top:8px;">
+        <button id="connectSave">Connect</button>
+      </div>
+    </details>
+    <button id="connectCancel" style="width:100%;background:none;border:none;color:var(--text-dim);font-family:inherit;font-size:11px;cursor:pointer;padding:4px;">Cancel</button>
+  </div>
+</div>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="logo">FlowDJ</span>
+    <div class="dot" id="statusDot"></div>
+    <span class="topbar-status" id="statusText">Ready</span>
+  </div>
+  <div class="topbar-right">
+    <div class="mic-level-wrap" id="micLevelWrap"></div>
+    <span class="local-badge" id="localBadge" title="project-control connected">🔗 local</span>
+    <button class="btn-sm connect-btn" id="connectBtn">⚡ Connect</button>
+    <button class="btn-sm" id="voiceBtn">mic</button>
+    <button class="btn-sm play-btn" id="playBtn">play</button>
+  </div>
+</div>
+
+<!-- Flow metrics -->
+<div class="flow-strip">
+  <div class="flow-metric">
+    <div class="label">WPM</div>
+    <div class="value" id="wpmValue">0</div>
+    <div class="sub">words / min</div>
+  </div>
+  <div class="flow-metric">
+    <div class="label">Flow</div>
+    <div class="value" id="flowValue" style="color: var(--accent)">0</div>
+    <div class="sub" id="flowSub">warming up</div>
+  </div>
+  <div class="flow-metric">
+    <div class="label">Focus</div>
+    <div class="value" id="focusValue" style="color: var(--accent3)">—</div>
+    <div class="sub" id="focusSub">no project</div>
+  </div>
+  <div class="flow-metric">
+    <div class="label">Voice</div>
+    <div class="value" id="voiceValue" style="color: var(--accent2)">—</div>
+    <div class="sub" id="voiceSub">mic off</div>
+  </div>
+  <div class="flow-metric">
+    <div class="label">BPM</div>
+    <div class="value" id="bpmValue">72</div>
+    <div class="sub">music tempo</div>
+  </div>
+  <div class="flow-metric">
+    <div class="label">Session</div>
+    <div class="value" id="sessionWords">0</div>
+    <div class="sub">words total</div>
+  </div>
+</div>
+
+<!-- Main split -->
+<div class="main-split">
+  <!-- Workspace -->
+  <div class="workspace" id="workspaceWrap">
+    <div class="workspace-header">
+      <div class="project-badge">
+        <div class="project-dot" id="projectDot" style="background:#555"></div>
+        <span id="workspaceLabel">Workspace</span>
+      </div>
+      <span class="word-count" id="wordCountLabel">0 words</span>
+    </div>
+    <textarea id="workspace-editor" placeholder="Start typing — the music responds to your rhythm and keeps you focused on your project.
+
+Pick a project on the right to enable focus tracking. Drift off-topic and the music shifts to nudge you back." spellcheck="false"></textarea>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="viz-wrap">
+      <canvas id="visualizer"></canvas>
+      <span class="viz-label" id="vibeName">Deep Focus</span>
+      <span class="viz-bpm"><span id="bpmDisplay">72</span> bpm</span>
+    </div>
+
+    <!-- Now Playing (Spotify) -->
+    <div class="now-playing" id="nowPlaying" style="display:none">
+      <div class="spotify-dot"></div>
+      <img class="now-playing-art" id="npArt" src="" alt="">
+      <div class="now-playing-info">
+        <div class="now-playing-track" id="npTrack">—</div>
+        <div class="now-playing-artist" id="npArtist">—</div>
+      </div>
+      <button class="now-playing-skip" id="npSkip" title="Skip">›</button>
+    </div>
+
+    <div class="flow-zone">
+      <div class="flow-zone-label">Zone</div>
+      <div class="flow-zone-bar"><div class="flow-zone-fill" id="flowBar"></div></div>
+      <div class="flow-zone-labels"><span>idle</span><span>warm</span><span>flow</span><span>peak</span></div>
+      <div class="zone-name" id="zoneName">Idle</div>
+    </div>
+
+    <!-- PROJECT FOCUS -->
+    <div class="project-section">
+      <div class="section-label">Project focus</div>
+      <select class="project-select" id="projectSelect">
+        <option value="">— none (freeform) —</option>
+      </select>
+      <button class="btn-sm" id="addProjectBtn" style="width:100%;text-align:center;margin-top:4px;">+ new project</button>
+
+      <div class="focus-bar-wrap" id="focusBarWrap" style="display:none">
+        <div class="focus-bar-track"><div class="focus-bar-fill" id="focusBarFill"></div></div>
+        <div class="focus-bar-labels"><span>off-topic</span><span>drifting</span><span>on-task</span></div>
+        <div class="focus-status">
+          <span class="focus-state" id="focusState">—</span>
+          <span class="focus-hint" id="focusHint"></span>
+        </div>
+      </div>
+
+      <div class="project-keywords" id="projectKeywords"></div>
+
+      <!-- Focus anchor (visible when Spotify connected + project active) -->
+      <div class="anchor-section" id="anchorSection" style="display:none">
+        <div class="anchor-chip" id="anchorChip" style="display:none">
+          <span class="anchor-note">♪</span>
+          <span class="anchor-label" id="anchorTrackName"></span>
+          <button class="anchor-remove" id="anchorRemove" title="Remove anchor">✕</button>
+        </div>
+        <div id="anchorSearchWrap" style="display:none">
+          <input type="text" id="anchorSearch" placeholder="Search Spotify…">
+          <div class="anchor-results" id="anchorResults"></div>
+        </div>
+        <button class="btn-sm" id="anchorLinkBtn" style="width:100%;text-align:center;margin-top:4px;font-size:10px;">♪ link focus track</button>
+      </div>
+    </div>
+
+    <div class="vibe-section">
+      <div class="section-label">Base vibe</div>
+      <div class="vibe-grid" id="vibeGrid">
+        <div class="vibe-chip" data-vibe="focus">Focus</div>
+        <div class="vibe-chip active" data-vibe="chill">Chill</div>
+        <div class="vibe-chip" data-vibe="energy">Energy</div>
+        <div class="vibe-chip" data-vibe="dreamy">Dreamy</div>
+        <div class="vibe-chip" data-vibe="dark">Dark</div>
+        <div class="vibe-chip" data-vibe="jazz">Jazz</div>
+      </div>
+    </div>
+
+    <div class="dj-log" id="djLog"></div>
+
+    <div class="sidebar-input">
+      <input type="text" id="djInput" placeholder="Tell the DJ...">
+    </div>
+  </div>
+</div>
+
+<!-- Sparkline -->
+<div class="sparkline-wrap">
+  <canvas id="sparkline"></canvas>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// SINGLE-TAB ENFORCEMENT (BroadcastChannel)
+// ════════════════════════════════════════════════════════════
+
+const tabId = Math.random().toString(36).slice(2);
+const channel = new BroadcastChannel('flowdj');
+
+channel.onmessage = (e) => {
+  if (e.data.type === 'playing' && e.data.tabId !== tabId && isPlaying) {
+    stopPlayback();
+    addLog('Paused — another tab took over', 'shift');
+  }
+};
+
+function broadcastPlaying() {
+  channel.postMessage({ type: 'playing', tabId });
+}
+
+// ════════════════════════════════════════════════════════════
+// CONFIG & STATE
+// ════════════════════════════════════════════════════════════
+
+const VIBES = {
+  chill: {
+    name:'Chill', bpm:76, energy:35, complexity:25, warmth:72, space:65, key:'minor',
+    scales:[0,2,3,5,7,8,10],
+    bassWave:'sine', padWave:'triangle', leadWave:'sine', padFMRatio:1, padFMDepth:60,
+    swing:0.12, kickStyle:'soft', hatStyle:'closed', hasSnare:false,
+    delay:{time:0.375, feedback:0.3, mix:0.2}, lfo:{rate:0.08, depth:400},
+    noiseLevel:0.008, chords:'triad',
+  },
+  focus: {
+    name:'Deep Focus', bpm:72, energy:25, complexity:18, warmth:50, space:80, key:'minor',
+    scales:[0,2,3,7,10], // minor pentatonic
+    bassWave:'sine', padWave:'sine', leadWave:'triangle', padFMRatio:2, padFMDepth:40,
+    swing:0, kickStyle:'click', hatStyle:'shaker', hasSnare:false,
+    delay:{time:0.5, feedback:0.4, mix:0.25}, lfo:{rate:0.04, depth:300},
+    noiseLevel:0.005, chords:'sus',
+  },
+  energy: {
+    name:'Energy', bpm:120, energy:80, complexity:55, warmth:40, space:25, key:'major',
+    scales:[0,2,4,5,7,9,11],
+    bassWave:'sawtooth', padWave:'square', leadWave:'sawtooth', padFMRatio:1, padFMDepth:20,
+    swing:0, kickStyle:'hard', hatStyle:'open', hasSnare:true,
+    delay:{time:0.25, feedback:0.15, mix:0.12}, lfo:{rate:0.2, depth:600},
+    noiseLevel:0.002, chords:'power',
+  },
+  dreamy: {
+    name:'Dreamy', bpm:66, energy:20, complexity:45, warmth:80, space:92, key:'minor',
+    scales:[0,2,3,7,8], // japanese in-scale
+    bassWave:'sine', padWave:'sine', leadWave:'sine', padFMRatio:3, padFMDepth:100,
+    swing:0.15, kickStyle:'soft', hatStyle:'brush', hasSnare:false,
+    delay:{time:0.666, feedback:0.5, mix:0.35}, lfo:{rate:0.03, depth:500},
+    noiseLevel:0.015, chords:'add9',
+  },
+  dark: {
+    name:'Dark', bpm:60, energy:18, complexity:40, warmth:28, space:95, key:'minor',
+    scales:[0,1,3,5,6,8,10], // phrygian
+    bassWave:'triangle', padWave:'sawtooth', leadWave:'square', padFMRatio:7, padFMDepth:80,
+    swing:0.05, kickStyle:'deep', hatStyle:'metallic', hasSnare:false,
+    delay:{time:0.75, feedback:0.55, mix:0.3}, lfo:{rate:0.02, depth:200},
+    noiseLevel:0.012, chords:'minor',
+  },
+  jazz: {
+    name:'Jazz', bpm:90, energy:38, complexity:65, warmth:75, space:50, key:'minor',
+    scales:[0,2,3,5,7,9,10], // dorian
+    bassWave:'triangle', padWave:'sine', leadWave:'triangle', padFMRatio:1.5, padFMDepth:90,
+    swing:0.25, kickStyle:'jazz', hatStyle:'ride', hasSnare:true,
+    delay:{time:0.333, feedback:0.2, mix:0.1}, lfo:{rate:0.07, depth:350},
+    noiseLevel:0.003, chords:'7th',
+  },
+};
+
+// Extended chord voicings per type
+const CHORD_TYPES = {
+  triad:  { minor:[[0,3,7],[5,8,0],[3,7,10],[7,10,2]], major:[[0,4,7],[5,9,0],[7,11,2],[4,7,11]] },
+  '7th':  { minor:[[0,3,7,10],[5,8,0,3],[3,7,10,2],[7,10,2,5]], major:[[0,4,7,11],[5,9,0,4],[7,11,2,5],[4,7,11,2]] },
+  sus:    { minor:[[0,5,7],[7,0,5],[3,7,0],[5,0,7]], major:[[0,5,7],[5,0,7],[7,0,5],[2,7,0]] },
+  add9:   { minor:[[0,3,7,14],[5,8,0,14],[3,7,10,14],[7,10,2,14]], major:[[0,4,7,14],[5,9,0,14],[7,11,2,14],[4,7,11,14]] },
+  power:  { minor:[[0,7,12],[5,0,7],[3,10,15],[7,2,12]], major:[[0,7,12],[5,0,7],[7,2,14],[4,11,16]] },
+  minor:  { minor:[[0,3,7],[5,8,0],[3,7,10],[7,10,2]], major:[[0,3,7],[5,8,0],[3,7,10],[7,10,2]] },
+};
+
+// ── PROJECT DEFINITIONS ──
+let projects = [
+  // ── Threshold (Core IP) ──
+  {
+    id: 'sideslip',
+    name: 'Sideslip',
+    workstream: 'Threshold',
+    keywords: ['steering', 'model', 'activation', 'layer', 'vector', 'intervention', 'latent', 'representation', 'feature', 'direction', 'probe', 'coefficient', 'residual', 'attention', 'transformer', 'weight', 'gradient', 'sideslip', 'daemon'],
+    driftWords: ['twitter', 'reddit', 'youtube', 'shopping', 'news', 'recipe', 'game', 'score'],
+    vibe: 'focus',
+    firewall: 'internal',
+  },
+  {
+    id: 'societies',
+    name: 'Societies',
+    workstream: 'Threshold',
+    keywords: ['perspective', 'simulation', 'agent', 'persona', 'viewpoint', 'society', 'deliberation', 'consensus', 'debate', 'role', 'position', 'stance', 'value', 'belief', 'opinion', 'dialogue', 'multi-agent', 'societies'],
+    driftWords: ['twitter', 'reddit', 'youtube', 'shopping', 'news'],
+    vibe: 'jazz',
+    firewall: 'internal',
+  },
+  {
+    id: 'gaius',
+    name: 'Gaius (Graph Nav)',
+    workstream: 'Threshold',
+    keywords: ['graph', 'node', 'edge', 'traverse', 'navigation', 'knowledge', 'entity', 'relationship', 'query', 'cypher', 'neo4j', 'connection', 'cluster', 'centrality', 'path', 'gaius', 'ontology'],
+    driftWords: ['twitter', 'reddit', 'youtube', 'shopping', 'news'],
+    vibe: 'chill',
+    firewall: 'internal',
+  },
+  {
+    id: 'threshold-core',
+    name: 'Threshold Core',
+    workstream: 'Threshold',
+    keywords: ['threshold', 'values', 'articulate', 'filter', 'information', 'experience', 'preference', 'integration', 'spotify', 'pocket', 'source', 'adapter', 'oauth', 'entity', 'extraction', 'shared', 'library'],
+    driftWords: ['twitter', 'reddit', 'youtube', 'shopping', 'news'],
+    vibe: 'chill',
+    firewall: 'internal',
+  },
+  // ── DropIn ──
+  {
+    id: 'dropin',
+    name: 'DropIn',
+    workstream: 'DropIn',
+    keywords: ['venue', 'musician', 'gig', 'booking', 'marketplace', 'event', 'artist', 'performance', 'calendar', 'availability', 'genre', 'band', 'soundcheck', 'capacity', 'dropin', 'music'],
+    driftWords: ['twitter', 'reddit', 'youtube', 'shopping'],
+    vibe: 'energy',
+    firewall: 'open',
+  },
+  // ── Agent Infrastructure ──
+  {
+    id: 'agents',
+    name: 'Agent Infra',
+    workstream: 'Agent Infrastructure',
+    keywords: ['agent', 'swarm', 'orchestrator', 'worker', 'task', 'queue', 'distributed', 'mcp', 'tool', 'prompt', 'context', 'spawn', 'delegate', 'pipeline', 'moltworker', 'clawd', 'inference'],
+    driftWords: ['twitter', 'reddit', 'youtube', 'shopping', 'news'],
+    vibe: 'dark',
+    firewall: 'research',
+  },
+  // ── Productivity Tooling ──
+  {
+    id: 'productivity',
+    name: 'Productivity Tools',
+    workstream: 'Productivity',
+    keywords: ['memory', 'keeper', 'context', 'session', 'analytics', 'tmux', 'orchestrator', 'workflow', 'automation', 'hook', 'config', 'claude', 'mcp', 'server', 'tool', 'karakeep', 'bookmark'],
+    driftWords: ['twitter', 'reddit', 'youtube', 'shopping', 'news'],
+    vibe: 'focus',
+    firewall: 'open',
+  },
+  // ── Research ──
+  {
+    id: 'research',
+    name: 'Research',
+    workstream: 'Research',
+    keywords: ['pattern', 'intelligence', 'reservoir', 'computing', 'emergence', 'complexity', 'network', 'topology', 'dynamics', 'attractor', 'phase', 'transition', 'information', 'entropy', 'signal', 'noise', 'hypothesis'],
+    driftWords: ['twitter', 'reddit', 'youtube', 'shopping', 'news', 'recipe'],
+    vibe: 'dreamy',
+    firewall: 'research',
+  },
+  // ── Events ──
+  {
+    id: 'events',
+    name: 'Events & Community',
+    workstream: 'Events',
+    keywords: ['event', 'meetup', 'boulder', 'community', 'speaker', 'venue', 'rsvp', 'agenda', 'builders', 'startup', 'demo', 'presentation', 'networking', 'organizer', 'schedule'],
+    driftWords: ['twitter', 'reddit', 'youtube', 'shopping'],
+    vibe: 'energy',
+    firewall: 'open',
+  },
+  // ── Generic ──
+  {
+    id: 'brainstorm',
+    name: 'Brainstorming',
+    workstream: 'General',
+    keywords: ['idea', 'what if', 'maybe', 'concept', 'explore', 'imagine', 'possibility', 'prototype', 'experiment', 'creative', 'combine', 'remix', 'perspective', 'angle', 'approach', 'novel', 'interesting', 'wild'],
+    driftWords: ['todo', 'meeting', 'email', 'deadline', 'budget', 'schedule'],
+    vibe: 'dreamy',
+    firewall: 'open',
+  },
+  {
+    id: 'writing',
+    name: 'Writing',
+    workstream: 'General',
+    keywords: ['draft', 'essay', 'paragraph', 'outline', 'introduction', 'conclusion', 'argument', 'narrative', 'chapter', 'revision', 'prose', 'sentence', 'structure', 'thesis', 'claim', 'evidence', 'voice', 'tone'],
+    driftWords: ['twitter', 'reddit', 'youtube', 'shopping', 'news', 'score', 'game', 'meme'],
+    vibe: 'focus',
+    firewall: 'open',
+  },
+];
+
+let activeProject = null;  // current project object or null
+let focusScore = 50;       // 0..100 — how on-topic the recent text is
+let lastFocusState = '';
+let driftOsc = null;       // dissonance oscillator for drift
+let driftGain = null;
+
+let currentVibe = 'chill';
+let audioCtx = null;
+let isPlaying = false;
+
+let baseParams = { energy:35, complexity:25, warmth:72, space:65, bpm:76 };
+let params     = { ...baseParams };
+
+let masterGain, compressor, convolver, analyser;
+let bassOsc, bassGain, bassFilter, subOsc, subGain;
+let padOscs = [], padMods = [], padGain, padFilter;
+let leadOsc, leadGain, leadFilter;
+let delayNode, delayFeedback, delayGain;
+let lfoOsc, lfoGain;
+let noiseSource, noiseGain, noiseFilter;
+
+let scaleNotes = VIBES.chill.scales;
+let beatCount = 0, chordIndex = 0;
+
+// Melody motif system
+let currentMotif = [], motifPos = 0, motifRepeat = 0;
+function generateMotif() {
+  const len = 3 + Math.floor(Math.random() * 3);
+  currentMotif = [];
+  for (let i = 0; i < len; i++) {
+    currentMotif.push({ note: pickNote(5,6), dur: Math.random()<0.3?2:1, rest: Math.random()<0.15 });
+  }
+  motifPos = 0; motifRepeat = 0;
+}
+function nextMotifNote() {
+  if (!currentMotif.length || motifPos >= currentMotif.length) {
+    motifRepeat++;
+    motifPos = 0;
+    if (motifRepeat >= 3) generateMotif();
+  }
+  const n = currentMotif[motifPos];
+  motifPos++;
+  // Transpose on repeats for development
+  const t = motifRepeat === 1 ? 2 : motifRepeat === 2 ? -2 : 0;
+  return { ...n, note: n.note + t };
+}
+
+// ════════════════════════════════════════════════════════════
+// TYPING / FLOW TRACKER
+// ════════════════════════════════════════════════════════════
+
+const FLOW_DECAY = 0.92, FLOW_GAIN = 0.08, FLOW_BURST_MULT = 1.5;
+const STREAK_TIMEOUT = 3000, WPM_WINDOW = 10000, HISTORY_LEN = 120;
+
+let keystrokeTimes = [];
+let flowScore = 0;
+let streakStart = null, lastKeystroke = 0;
+let flowHistory = new Array(HISTORY_LEN).fill(0);
+let lastZone = '';
+
+function onKeystroke() {
+  const now = Date.now();
+  keystrokeTimes.push(now);
+  while (keystrokeTimes.length > 0 && keystrokeTimes[0] < now - WPM_WINDOW) keystrokeTimes.shift();
+
+  if (!streakStart || now - lastKeystroke > STREAK_TIMEOUT) streakStart = now;
+  lastKeystroke = now;
+
+  let burstBonus = 1;
+  if (keystrokeTimes.length >= 5) {
+    if (now - keystrokeTimes[keystrokeTimes.length - 5] < 500) burstBonus = FLOW_BURST_MULT;
+  }
+  flowScore = Math.min(100, flowScore + FLOW_GAIN * burstBonus);
+}
+
+function flowTick() {
+  const now = Date.now();
+  const idleMs = now - (lastKeystroke || now);
+
+  if (idleMs > 800) {
+    flowScore = Math.max(0, flowScore * Math.pow(FLOW_DECAY, idleMs / 1000));
+  }
+
+  const recentKeys = keystrokeTimes.filter(t => t > now - WPM_WINDOW).length;
+  const wpm = Math.round((recentKeys / 5) * (60000 / WPM_WINDOW));
+
+  let zone, zoneColor;
+  if (flowScore < 10)      { zone = 'Idle';    zoneColor = 'var(--text-dim)'; }
+  else if (flowScore < 35) { zone = 'Warming';  zoneColor = 'var(--accent)'; }
+  else if (flowScore < 65) { zone = 'Flow';     zoneColor = 'var(--accent3)'; }
+  else                     { zone = 'Peak';     zoneColor = 'var(--accent2)'; }
+
+  if (zone !== lastZone && lastZone !== '') {
+    if (zone === 'Flow') addLog('Entering flow state...', 'flow');
+    else if (zone === 'Peak') addLog('PEAK — locked in', 'flow');
+    else if (zone === 'Idle' && lastZone !== 'Warming') addLog('Cooling down...', 'shift');
+  }
+  lastZone = zone;
+
+  // ── MAP FLOW + FOCUS TO MUSIC ──
+  const f = flowScore / 100;
+  const focusMod = activeProject ? (focusScore - 50) / 50 : 0; // -1..+1
+
+  // Flow drives energy up
+  params.energy = baseParams.energy + f * 40;
+  params.complexity = baseParams.complexity + f * 35;
+  params.bpm = baseParams.bpm + f * (baseParams.bpm * 0.25);
+  params.warmth = baseParams.warmth + Math.sin(f * Math.PI) * 15;
+  params.space = baseParams.space - f * 25;
+
+  // Focus modulates: on-topic = clearer/warmer, off-topic = muddier/tenser
+  if (activeProject) {
+    // Positive focus: boost warmth, slight energy
+    // Negative focus: cut warmth, add space (isolation), cut complexity (clarity drops)
+    params.warmth += focusMod * 15;
+    params.complexity += focusMod * 10;
+    params.space -= focusMod * 10;
+  }
+
+  // Clamp
+  Object.keys(params).forEach(k => {
+    if (k !== 'bpm') params[k] = Math.max(0, Math.min(100, params[k]));
+    else params[k] = Math.max(50, Math.min(160, params[k]));
+  });
+
+  // ── UPDATE DRIFT OSCILLATOR ──
+  if (driftGain && activeProject) {
+    // Dissonance increases as focus drops below 30
+    const driftAmount = Math.max(0, (30 - focusScore) / 30); // 0..1
+    driftGain.gain.setTargetAtTime(driftAmount * 0.04, audioCtx.currentTime, 0.5);
+    // Detune pads slightly when drifting
+    padOscs.forEach((p, i) => {
+      const detune = (i - 1) * 8 + driftAmount * 25 * (i === 1 ? -1 : 1);
+      p.osc.detune.setTargetAtTime(detune, audioCtx.currentTime, 0.5);
+    });
+  } else if (driftGain) {
+    driftGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+    padOscs.forEach((p, i) => {
+      p.osc.detune.setTargetAtTime((i - 1) * 8, audioCtx.currentTime, 0.3);
+    });
+  }
+
+  // ── UI ──
+  document.getElementById('wpmValue').textContent = wpm;
+  document.getElementById('flowValue').textContent = Math.round(flowScore);
+  document.getElementById('flowValue').style.color = zoneColor;
+  document.getElementById('flowSub').textContent = zone.toLowerCase();
+  document.getElementById('bpmValue').textContent = Math.round(params.bpm);
+  document.getElementById('bpmDisplay').textContent = Math.round(params.bpm);
+  document.getElementById('flowBar').style.width = flowScore + '%';
+  document.getElementById('flowBar').style.background = zoneColor;
+  document.getElementById('zoneName').textContent = zone;
+  document.getElementById('zoneName').style.color = zoneColor;
+
+  const text = editor.value;
+  const wc = text.trim() ? text.trim().split(/\s+/).length : 0;
+  document.getElementById('sessionWords').textContent = wc;
+  document.getElementById('wordCountLabel').textContent = wc + ' words';
+
+  if (isPlaying) requestAnimationFrame(flowTick);
+}
+
+// ════════════════════════════════════════════════════════════
+// PROJECT FOCUS ANALYZER
+// ════════════════════════════════════════════════════════════
+
+const FOCUS_WINDOW = 80;  // analyze last N words
+const FOCUS_DECAY  = 0.97; // slow decay toward 50 (neutral) when no signal
+const FOCUS_GAIN   = 3;    // per keyword hit
+const FOCUS_PENALTY = 5;   // per drift-word hit
+
+let lastAnalyzedLength = 0;
+
+function analyzeText() {
+  if (!activeProject) return;
+
+  const text = editor.value;
+  if (text.length === lastAnalyzedLength) {
+    // No change — gently decay toward neutral
+    focusScore = focusScore + (50 - focusScore) * 0.005;
+    updateFocusUI();
+    return;
+  }
+  lastAnalyzedLength = text.length;
+
+  // Get last N words
+  const allWords = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+  const window = allWords.slice(-FOCUS_WINDOW);
+  if (window.length < 3) { updateFocusUI(); return; }
+
+  // Count keyword hits and drift hits
+  let hits = 0, drifts = 0;
+  const hitSet = new Set();
+
+  for (const word of window) {
+    for (const kw of activeProject.keywords) {
+      // Support multi-word keywords
+      if (kw.includes(' ')) {
+        if (text.toLowerCase().includes(kw)) { hits++; hitSet.add(kw); break; }
+      } else if (word === kw || (kw.length > 4 && word.startsWith(kw.slice(0, -1)))) {
+        hits++; hitSet.add(kw); break;
+      }
+    }
+    for (const dw of activeProject.driftWords) {
+      if (word === dw || (dw.length > 4 && word.startsWith(dw.slice(0, -1)))) {
+        drifts++; break;
+      }
+    }
+  }
+
+  // Score: ratio of hits, penalized by drifts
+  const hitRate = hits / window.length;
+  const driftRate = drifts / window.length;
+
+  // Target: 0..100 based on hit density minus drift density
+  const target = Math.max(0, Math.min(100, 50 + hitRate * 200 - driftRate * 300));
+
+  // Smooth toward target
+  focusScore = focusScore + (target - focusScore) * 0.15;
+
+  // Highlight active keywords
+  const kwTags = document.querySelectorAll('#projectKeywords .kw-tag');
+  kwTags.forEach(tag => {
+    tag.classList.toggle('hit', hitSet.has(tag.dataset.kw));
+  });
+
+  updateFocusUI();
+}
+
+function updateFocusUI() {
+  if (!activeProject) {
+    document.getElementById('focusValue').textContent = '—';
+    document.getElementById('focusSub').textContent = 'no project';
+    return;
+  }
+
+  const score = Math.round(focusScore);
+  document.getElementById('focusValue').textContent = score;
+  document.getElementById('focusBarFill').style.width = score + '%';
+
+  let state, stateColor, hint, barColor, dotColor;
+  const workspaceEl = document.getElementById('workspaceWrap');
+  workspaceEl.classList.remove('drifting', 'off-topic');
+
+  if (score >= 65) {
+    state = 'On-task'; stateColor = 'var(--accent3)'; barColor = 'var(--accent3)';
+    dotColor = '#5bf5b9'; hint = '';
+  } else if (score >= 45) {
+    state = 'Focused'; stateColor = 'var(--accent)'; barColor = 'var(--accent)';
+    dotColor = '#7c5bf5'; hint = '';
+  } else if (score >= 25) {
+    state = 'Drifting'; stateColor = 'var(--warn)'; barColor = 'var(--warn)';
+    dotColor = '#f5a623'; hint = 'Getting off-topic...';
+    workspaceEl.classList.add('drifting');
+  } else {
+    state = 'Off-topic'; stateColor = 'var(--danger)'; barColor = 'var(--danger)';
+    dotColor = '#f55b5b'; hint = 'Come back to ' + activeProject.name;
+    workspaceEl.classList.add('off-topic');
+  }
+
+  // Log transitions + fire anchor
+  if (state !== lastFocusState && lastFocusState !== '') {
+    if (state === 'Drifting') {
+      addLog(`Drifting from ${activeProject.name}...`, 'drift');
+      triggerFocusAnchor();
+    } else if (state === 'Off-topic') {
+      addLog(`Off-topic — music shifting to recenter`, 'drift');
+      triggerFocusAnchor();
+    } else if ((lastFocusState === 'Drifting' || lastFocusState === 'Off-topic') && score >= 45) {
+      addLog('Back on track!', 'refocus');
+      if (isPlaying) playRefocusReward();
+    }
+  }
+  lastFocusState = state;
+
+  document.getElementById('focusValue').style.color = stateColor;
+  document.getElementById('focusSub').textContent = state.toLowerCase();
+  document.getElementById('focusBarFill').style.background = barColor;
+  document.getElementById('focusState').textContent = state;
+  document.getElementById('focusState').style.color = stateColor;
+  document.getElementById('focusHint').textContent = hint;
+  document.getElementById('focusHint').style.color = stateColor;
+  document.getElementById('projectDot').style.background = dotColor;
+  document.getElementById('projectDot').style.boxShadow = `0 0 6px ${dotColor}`;
+}
+
+// Run text analysis every 500ms
+setInterval(analyzeText, 500);
+
+// ════════════════════════════════════════════════════════════
+// SPARKLINE
+// ════════════════════════════════════════════════════════════
+
+const sparkCanvas = document.getElementById('sparkline');
+const sparkCtx = sparkCanvas.getContext('2d');
+
+function resizeSparkline() {
+  sparkCanvas.width = sparkCanvas.clientWidth * devicePixelRatio;
+  sparkCanvas.height = sparkCanvas.clientHeight * devicePixelRatio;
+}
+window.addEventListener('resize', resizeSparkline);
+resizeSparkline();
+
+setInterval(() => {
+  flowHistory.push(flowScore);
+  if (flowHistory.length > HISTORY_LEN) flowHistory.shift();
+  drawSparkline();
+}, 1000);
+
+function drawSparkline() {
+  const W = sparkCanvas.clientWidth, H = sparkCanvas.clientHeight, dpr = devicePixelRatio;
+  sparkCtx.setTransform(1,0,0,1,0,0);
+  sparkCtx.clearRect(0, 0, sparkCanvas.width, sparkCanvas.height);
+  sparkCtx.scale(dpr, dpr);
+  const len = flowHistory.length;
+  if (len < 2) return;
+
+  // Flow fill
+  const grad = sparkCtx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, 'rgba(124,91,245,0.2)'); grad.addColorStop(1, 'rgba(124,91,245,0)');
+  sparkCtx.beginPath(); sparkCtx.moveTo(0, H);
+  for (let i = 0; i < len; i++) sparkCtx.lineTo((i/(len-1))*W, H - (flowHistory[i]/100)*H);
+  sparkCtx.lineTo(W, H); sparkCtx.fillStyle = grad; sparkCtx.fill();
+
+  // Flow line
+  sparkCtx.beginPath();
+  for (let i = 0; i < len; i++) {
+    const x = (i/(len-1))*W, y = H - (flowHistory[i]/100)*H;
+    i === 0 ? sparkCtx.moveTo(x,y) : sparkCtx.lineTo(x,y);
+  }
+  sparkCtx.strokeStyle = 'rgba(124,91,245,0.5)'; sparkCtx.lineWidth = 1; sparkCtx.stroke();
+}
+
+// ════════════════════════════════════════════════════════════
+// AUDIO ENGINE
+// ════════════════════════════════════════════════════════════
+
+function midiToFreq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+function pickNote(lo, hi) {
+  const oct = lo + Math.floor(Math.random() * (hi - lo + 1));
+  return 12 * oct + scaleNotes[Math.floor(Math.random() * scaleNotes.length)];
+}
+function getBeatMs() { return 60000 / params.bpm; }
+
+function initAudio() {
+  const vibe = VIBES[currentVibe];
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Master chain: masterGain → compressor → analyser → destination
+  compressor = audioCtx.createDynamicsCompressor();
+  compressor.threshold.value = -18; compressor.ratio.value = 4; compressor.knee.value = 10;
+  masterGain = audioCtx.createGain(); masterGain.gain.value = 0.7;
+  analyser = audioCtx.createAnalyser(); analyser.fftSize = 2048;
+
+  masterGain.connect(compressor);
+  compressor.connect(analyser);
+  analyser.connect(audioCtx.destination);
+
+  // Reverb send
+  try {
+    convolver = audioCtx.createConvolver();
+    const rLen = audioCtx.sampleRate * 2.5;
+    const rBuf = audioCtx.createBuffer(2, rLen, audioCtx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = rBuf.getChannelData(ch);
+      for (let i = 0; i < rLen; i++) {
+        d[i] = (Math.random()*2-1) * Math.pow(1-i/rLen, 2.5) * (1 + 0.3*Math.sin(i*0.001));
+      }
+    }
+    convolver.buffer = rBuf;
+    const revGain = audioCtx.createGain(); revGain.gain.value = 0.25;
+    masterGain.connect(convolver); convolver.connect(revGain); revGain.connect(compressor);
+  } catch(e) { console.warn('Reverb init failed:', e); }
+
+  // Delay effect (synced to tempo)
+  const dTime = vibe.delay?.time || 0.375;
+  delayNode = audioCtx.createDelay(2.0); delayNode.delayTime.value = dTime;
+  delayFeedback = audioCtx.createGain(); delayFeedback.gain.value = vibe.delay?.feedback || 0.3;
+  delayGain = audioCtx.createGain(); delayGain.gain.value = vibe.delay?.mix || 0.2;
+  const delayFilter = audioCtx.createBiquadFilter();
+  delayFilter.type = 'lowpass'; delayFilter.frequency.value = 2500;
+  masterGain.connect(delayNode);
+  delayNode.connect(delayFilter); delayFilter.connect(delayFeedback); delayFeedback.connect(delayNode);
+  delayNode.connect(delayGain); delayGain.connect(compressor);
+
+  // ── Bass ── (main + sub octave)
+  bassOsc = audioCtx.createOscillator(); bassOsc.type = vibe.bassWave || 'sine';
+  bassOsc.frequency.value = midiToFreq(36);
+  bassFilter = audioCtx.createBiquadFilter(); bassFilter.type = 'lowpass'; bassFilter.frequency.value = 300;
+  bassGain = audioCtx.createGain(); bassGain.gain.value = 0.2;
+  bassOsc.connect(bassFilter); bassFilter.connect(bassGain); bassGain.connect(masterGain); bassOsc.start();
+
+  subOsc = audioCtx.createOscillator(); subOsc.type = 'sine';
+  subOsc.frequency.value = midiToFreq(24);
+  subGain = audioCtx.createGain(); subGain.gain.value = 0.12;
+  subOsc.connect(subGain); subGain.connect(masterGain); subOsc.start();
+
+  // ── Pad with FM synthesis ──
+  padGain = audioCtx.createGain(); padGain.gain.value = 0.15;
+  padFilter = audioCtx.createBiquadFilter(); padFilter.type = 'lowpass';
+  padFilter.frequency.value = 1200; padFilter.Q.value = 1.5;
+  padGain.connect(padFilter); padFilter.connect(masterGain);
+
+  const fmRatio = vibe.padFMRatio || 1;
+  const fmDepth = vibe.padFMDepth || 60;
+  padOscs = []; padMods = [];
+  for (let i = 0; i < 3; i++) {
+    // Carrier
+    const carrier = audioCtx.createOscillator(); carrier.type = vibe.padWave || 'triangle';
+    carrier.frequency.value = midiToFreq(60+i*4); carrier.detune.value = (i-1)*8;
+    const cGain = audioCtx.createGain(); cGain.gain.value = 0.15;
+    // FM Modulator → carrier frequency
+    const mod = audioCtx.createOscillator(); mod.type = 'sine';
+    mod.frequency.value = midiToFreq(60+i*4) * fmRatio;
+    const modGain = audioCtx.createGain(); modGain.gain.value = fmDepth;
+    mod.connect(modGain); modGain.connect(carrier.frequency);
+    carrier.connect(cGain); cGain.connect(padGain);
+    carrier.start(); mod.start();
+    padOscs.push({ osc:carrier, gain:cGain });
+    padMods.push({ osc:mod, gain:modGain });
+  }
+
+  // ── Lead ──
+  leadOsc = audioCtx.createOscillator(); leadOsc.type = vibe.leadWave || 'sawtooth';
+  leadOsc.frequency.value = midiToFreq(72);
+  leadFilter = audioCtx.createBiquadFilter(); leadFilter.type = 'lowpass';
+  leadFilter.frequency.value = 1200; leadFilter.Q.value = 5;
+  leadGain = audioCtx.createGain(); leadGain.gain.value = 0;
+  leadOsc.connect(leadFilter); leadFilter.connect(leadGain); leadGain.connect(masterGain); leadOsc.start();
+
+  // ── Filter LFO → pad filter ──
+  lfoOsc = audioCtx.createOscillator(); lfoOsc.type = 'sine';
+  lfoOsc.frequency.value = vibe.lfo?.rate || 0.08;
+  lfoGain = audioCtx.createGain(); lfoGain.gain.value = vibe.lfo?.depth || 400;
+  lfoOsc.connect(lfoGain); lfoGain.connect(padFilter.frequency);
+  lfoOsc.start();
+
+  // ── Noise texture (vinyl/air) ──
+  const noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
+  const nd = noiseBuf.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random()*2-1;
+  noiseSource = audioCtx.createBufferSource(); noiseSource.buffer = noiseBuf; noiseSource.loop = true;
+  noiseFilter = audioCtx.createBiquadFilter(); noiseFilter.type = 'bandpass';
+  noiseFilter.frequency.value = 8000; noiseFilter.Q.value = 0.5;
+  noiseGain = audioCtx.createGain(); noiseGain.gain.value = vibe.noiseLevel || 0.008;
+  noiseSource.connect(noiseFilter); noiseFilter.connect(noiseGain); noiseGain.connect(masterGain);
+  noiseSource.start();
+
+  // ── Drift dissonance oscillator ──
+  driftOsc = audioCtx.createOscillator(); driftOsc.type = 'sine';
+  driftOsc.frequency.value = midiToFreq(66);
+  driftGain = audioCtx.createGain(); driftGain.gain.value = 0;
+  const driftFilter2 = audioCtx.createBiquadFilter();
+  driftFilter2.type = 'lowpass'; driftFilter2.frequency.value = 600;
+  driftOsc.connect(driftFilter2); driftFilter2.connect(driftGain); driftGain.connect(masterGain);
+  driftOsc.start();
+
+  generateMotif();
+}
+
+function playKick() {
+  if (!audioCtx || !isPlaying) return;
+  const t = audioCtx.currentTime;
+  const vibe = VIBES[currentVibe];
+  const style = vibe.kickStyle || 'soft';
+
+  const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+  o.type = 'sine';
+
+  if (style === 'hard') {
+    o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(35, t+0.08);
+    g.gain.setValueAtTime(0.35 + 0.3*(params.energy/100), t); g.gain.exponentialRampToValueAtTime(0.001, t+0.25);
+    // Click transient
+    const click = audioCtx.createOscillator(); const cg = audioCtx.createGain();
+    click.type = 'square'; click.frequency.value = 1200;
+    cg.gain.setValueAtTime(0.06, t); cg.gain.exponentialRampToValueAtTime(0.001, t+0.01);
+    click.connect(cg); cg.connect(masterGain); click.start(t); click.stop(t+0.02);
+  } else if (style === 'deep') {
+    o.frequency.setValueAtTime(80, t); o.frequency.exponentialRampToValueAtTime(20, t+0.2);
+    g.gain.setValueAtTime(0.3 + 0.2*(params.energy/100), t); g.gain.exponentialRampToValueAtTime(0.001, t+0.5);
+  } else if (style === 'click') {
+    o.frequency.setValueAtTime(400, t); o.frequency.exponentialRampToValueAtTime(60, t+0.03);
+    g.gain.setValueAtTime(0.1 + 0.15*(params.energy/100), t); g.gain.exponentialRampToValueAtTime(0.001, t+0.15);
+  } else if (style === 'jazz') {
+    o.frequency.setValueAtTime(100, t); o.frequency.exponentialRampToValueAtTime(40, t+0.08);
+    g.gain.setValueAtTime(0.12 + 0.1*(params.energy/100), t); g.gain.exponentialRampToValueAtTime(0.001, t+0.2);
+  } else { // soft
+    o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(30, t+0.12);
+    g.gain.setValueAtTime(0.2 + 0.2*(params.energy/100), t); g.gain.exponentialRampToValueAtTime(0.001, t+0.3);
+  }
+  o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.5);
+}
+
+function playHat() {
+  if (!audioCtx || !isPlaying) return;
+  const t = audioCtx.currentTime;
+  const vibe = VIBES[currentVibe];
+  const style = vibe.hatStyle || 'closed';
+
+  const bufLen = style === 'open' ? 0.12 : style === 'ride' ? 0.15 : style === 'brush' ? 0.08 : 0.04;
+  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate*bufLen, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
+  const s = audioCtx.createBufferSource(); s.buffer = buf;
+
+  const hpf = audioCtx.createBiquadFilter(); hpf.type = 'highpass';
+  const g = audioCtx.createGain();
+  const vol = 0.04 + 0.06*(params.energy/100);
+
+  if (style === 'open') {
+    hpf.frequency.value = 6000;
+    g.gain.setValueAtTime(vol*1.2, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.12);
+  } else if (style === 'ride') {
+    hpf.frequency.value = 5000;
+    // Add tonal ping for ride bell
+    const bell = audioCtx.createOscillator(); bell.type = 'triangle'; bell.frequency.value = 800;
+    const bg = audioCtx.createGain(); bg.gain.setValueAtTime(0.02, t); bg.gain.exponentialRampToValueAtTime(0.001, t+0.1);
+    bell.connect(bg); bg.connect(masterGain); bell.start(t); bell.stop(t+0.12);
+    g.gain.setValueAtTime(vol*0.7, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.15);
+  } else if (style === 'brush') {
+    hpf.frequency.value = 3000;
+    g.gain.setValueAtTime(vol*0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.08);
+  } else if (style === 'shaker') {
+    hpf.frequency.value = 7000;
+    // Envelope: soft attack
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol*0.6, t+0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, t+0.05);
+  } else if (style === 'metallic') {
+    hpf.frequency.value = 4000;
+    // Add metallic resonance
+    const res = audioCtx.createBiquadFilter(); res.type = 'bandpass'; res.frequency.value = 6000; res.Q.value = 15;
+    s.connect(res); res.connect(g);
+    g.gain.setValueAtTime(vol*0.8, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.06);
+    g.connect(masterGain); s.start(t); return;
+  } else { // closed
+    hpf.frequency.value = 8000;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.04);
+  }
+  s.connect(hpf); hpf.connect(g); g.connect(masterGain); s.start(t);
+}
+
+function playSnare() {
+  if (!audioCtx || !isPlaying) return;
+  const t = audioCtx.currentTime;
+  const vol = 0.08 + 0.12*(params.energy/100);
+  // Body tone
+  const body = audioCtx.createOscillator(); body.type = 'triangle';
+  body.frequency.setValueAtTime(200, t); body.frequency.exponentialRampToValueAtTime(120, t+0.05);
+  const bg = audioCtx.createGain();
+  bg.gain.setValueAtTime(vol, t); bg.gain.exponentialRampToValueAtTime(0.001, t+0.15);
+  body.connect(bg); bg.connect(masterGain); body.start(t); body.stop(t+0.2);
+  // Noise rattle
+  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate*0.1, audioCtx.sampleRate);
+  const d = buf.getChannelData(0); for(let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
+  const ns = audioCtx.createBufferSource(); ns.buffer = buf;
+  const hpf = audioCtx.createBiquadFilter(); hpf.type = 'highpass'; hpf.frequency.value = 3000;
+  const ng = audioCtx.createGain();
+  ng.gain.setValueAtTime(vol*0.7, t); ng.gain.exponentialRampToValueAtTime(0.001, t+0.1);
+  ns.connect(hpf); hpf.connect(ng); ng.connect(masterGain); ns.start(t);
+}
+
+function playRewardTone() {
+  if (!audioCtx || !isPlaying) return;
+  const t = audioCtx.currentTime;
+  const o = audioCtx.createOscillator(); o.type = 'sine';
+  const g = audioCtx.createGain();
+  const n = pickNote(5,6);
+  o.frequency.setValueAtTime(midiToFreq(n), t);
+  o.frequency.setValueAtTime(midiToFreq(n+7), t+0.1);
+  g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.4);
+  o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.4);
+}
+
+// Satisfying resolution chord when coming back on-topic
+function playRefocusReward() {
+  if (!audioCtx || !isPlaying) return;
+  const t = audioCtx.currentTime;
+  // Play a nice major triad resolution
+  [0, 4, 7, 12].forEach((interval, i) => {
+    const o = audioCtx.createOscillator(); o.type = 'sine';
+    const g = audioCtx.createGain();
+    const freq = midiToFreq(60 + scaleNotes[0] + interval);
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0, t + i*0.06);
+    g.gain.linearRampToValueAtTime(0.08, t + i*0.06 + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+    o.connect(g); g.connect(masterGain);
+    o.start(t + i*0.06); o.stop(t + 1);
+  });
+}
+
+function getChordProg() {
+  const vibe = VIBES[currentVibe];
+  const ct = CHORD_TYPES[vibe.chords] || CHORD_TYPES.triad;
+  return ct[vibe.key] || ct.minor;
+}
+
+function advanceBeat() {
+  if (!isPlaying) return;
+  const beat = beatCount % 16;
+  const vibe = VIBES[currentVibe];
+  const t = audioCtx.currentTime;
+
+  // ── Kick patterns (per-vibe variation) ──
+  if (beat % 4 === 0) playKick();
+  else if (beat % 4 === 2 && params.energy > 55) playKick();
+  // Extra kicks for energy vibe
+  if (currentVibe === 'energy' && beat % 8 === 6 && params.energy > 60) playKick();
+
+  // ── Hat patterns ──
+  if (params.energy > 15) {
+    const hatProb = currentVibe === 'jazz'
+      ? (beat % 3 === 0 ? 0.9 : 0.4) // swing feel
+      : (beat % 2 === 0 ? 0.8 : (params.energy > 40 ? 0.5 : 0.1));
+    if (Math.random() < hatProb) playHat();
+  }
+
+  // ── Snare (vibes that have it) ──
+  if (vibe.hasSnare && (beat === 4 || beat === 12)) playSnare();
+  // Ghost snares at higher energy
+  if (vibe.hasSnare && params.energy > 60 && (beat === 10 || beat === 14) && Math.random() < 0.3) playSnare();
+
+  // ── Chord changes ──
+  if (beat % 4 === 0) {
+    const prog = getChordProg();
+    const chord = prog[chordIndex % prog.length];
+    padOscs.forEach((p, i) => {
+      const interval = chord[i % chord.length] || 0;
+      const n = 4*12 + scaleNotes[0] + interval;
+      p.osc.frequency.setTargetAtTime(midiToFreq(n), t, 0.3);
+      // Update FM modulator frequency to match
+      if (padMods[i]) {
+        const fmRatio = vibe.padFMRatio || 1;
+        padMods[i].osc.frequency.setTargetAtTime(midiToFreq(n) * fmRatio, t, 0.3);
+      }
+    });
+    if (beat === 0) chordIndex++;
+
+    // Drift osc: tritone of current root
+    if (driftOsc) {
+      driftOsc.frequency.setTargetAtTime(midiToFreq(4*12 + scaleNotes[0] + 6), t, 0.3);
+    }
+  }
+
+  // ── Bass movement ──
+  if (beat % 4 === 0 || (currentVibe === 'jazz' && beat % 2 === 0)) {
+    const prog = getChordProg();
+    const chord = prog[Math.abs(chordIndex-1) % prog.length];
+    let bassNote;
+    if (currentVibe === 'jazz' && beat % 4 !== 0) {
+      // Walking bass: pick a passing tone
+      const passing = scaleNotes[Math.floor(Math.random()*scaleNotes.length)];
+      bassNote = 24 + passing;
+    } else {
+      bassNote = 24 + scaleNotes[0] + (chord ? chord[0] : 0);
+    }
+    bassOsc.frequency.setTargetAtTime(midiToFreq(bassNote), t, 0.08);
+    subOsc.frequency.setTargetAtTime(midiToFreq(bassNote - 12), t, 0.08);
+  }
+
+  // ── Lead melody (motif-based) ──
+  if (params.complexity > 20 && Math.random() < params.complexity/130) {
+    const m = nextMotifNote();
+    if (!m.rest) {
+      const dur = getBeatMs()/1000 * m.dur;
+      leadOsc.frequency.setTargetAtTime(midiToFreq(m.note), t, 0.04);
+      leadGain.gain.setTargetAtTime(0.06*(params.complexity/100), t, 0.015);
+      leadGain.gain.setTargetAtTime(0, t + dur*0.7, 0.08);
+    }
+  }
+
+  beatCount++;
+  // Apply swing: delay odd 8th notes
+  const swingAmount = vibe.swing || 0;
+  const nextBeatMs = getBeatMs();
+  const swingDelay = (beatCount % 2 === 1) ? nextBeatMs * swingAmount : 0;
+  setTimeout(advanceBeat, nextBeatMs + swingDelay);
+}
+
+let audioNodeUpdateCount = 0;
+function updateAudioNodes() {
+  if (!audioCtx || !isPlaying) return;
+  const t = audioCtx.currentTime;
+  const vibe = VIBES[currentVibe];
+
+  const bv = 0.15 + 0.25*(params.energy/100);
+  const bf = 100 + 350*(params.warmth/100);
+  const sv = 0.06 + 0.10*(params.warmth/100); // sub bass
+  const pv = 0.10 + 0.12*(params.warmth/100);
+  const pf = 500 + 2000*(params.warmth/100);
+  const lf = 600 + 3000*(params.complexity/100);
+  const nv = (vibe.noiseLevel||0.008) * (0.5 + 0.5*(params.space/100)); // noise follows space
+
+  // Delay params track tempo
+  const delayTime = (vibe.delay?.time || 0.375) * (72 / params.bpm); // scale with tempo
+  const delayMix = (vibe.delay?.mix || 0.2) * (0.5 + 0.5*(params.space/100));
+  const delayFb = vibe.delay?.feedback || 0.3;
+
+  // FM depth modulates with energy
+  const fmDepth = (vibe.padFMDepth || 60) * (0.5 + 0.5*(params.energy/100));
+
+  if (audioNodeUpdateCount < 3) {
+    bassGain.gain.value = bv; bassFilter.frequency.value = bf;
+    if (subGain) subGain.gain.value = sv;
+    padGain.gain.value = pv; padFilter.frequency.value = pf;
+    leadFilter.frequency.value = lf;
+    if (noiseGain) noiseGain.gain.value = nv;
+    if (delayNode) delayNode.delayTime.value = delayTime;
+    if (delayGain) delayGain.gain.value = delayMix;
+    if (delayFeedback) delayFeedback.gain.value = delayFb;
+    padMods.forEach(m => { m.gain.gain.value = fmDepth; });
+    audioNodeUpdateCount++;
+  } else {
+    bassGain.gain.setTargetAtTime(bv, t, 0.3);
+    bassFilter.frequency.setTargetAtTime(bf, t, 0.3);
+    if (subGain) subGain.gain.setTargetAtTime(sv, t, 0.3);
+    padGain.gain.setTargetAtTime(pv, t, 0.3);
+    padFilter.frequency.setTargetAtTime(pf, t, 0.5);
+    leadFilter.frequency.setTargetAtTime(lf, t, 0.3);
+    if (noiseGain) noiseGain.gain.setTargetAtTime(nv, t, 0.5);
+    if (delayNode) delayNode.delayTime.setTargetAtTime(delayTime, t, 0.5);
+    if (delayGain) delayGain.gain.setTargetAtTime(delayMix, t, 0.3);
+    if (delayFeedback) delayFeedback.gain.setTargetAtTime(delayFb, t, 0.3);
+    padMods.forEach(m => { m.gain.gain.setTargetAtTime(fmDepth, t, 0.3); });
+  }
+  requestAnimationFrame(updateAudioNodes);
+}
+
+// ════════════════════════════════════════════════════════════
+// VISUALIZER
+// ════════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('visualizer');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  canvas.width = canvas.clientWidth * devicePixelRatio;
+  canvas.height = canvas.clientHeight * devicePixelRatio;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+function drawViz() {
+  if (!isPlaying) return;
+  if (!analyser) { requestAnimationFrame(drawViz); return; }
+  const W = canvas.clientWidth, H = canvas.clientHeight, dpr = devicePixelRatio;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.scale(dpr, dpr);
+
+  const bufLen = analyser.frequencyBinCount;
+  const freq = new Uint8Array(bufLen);
+  analyser.getByteFrequencyData(freq);
+  const barCount = 48, barW = W/barCount, step = Math.floor(bufLen/barCount);
+
+  // Color shifts when drifting
+  const driftShift = activeProject ? Math.max(0, (40 - focusScore) / 40) : 0; // 0..1
+
+  for (let i = 0; i < barCount; i++) {
+    const val = freq[i*step] / 255;
+    const h = val * H * 0.85;
+    // Hue shifts toward red/orange when drifting
+    const hue = 260 + i*(120/barCount) + params.warmth*0.5 - driftShift * 120;
+    const sat = 50 + 30*(params.energy/100);
+    const light = 15 + 30*val;
+    ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, ${0.35+val*0.4})`;
+    ctx.fillRect(i*barW, H-h, barW-1, h);
+  }
+
+  const time = new Uint8Array(bufLen);
+  analyser.getByteTimeDomainData(time);
+  ctx.beginPath();
+  ctx.strokeStyle = driftShift > 0.3 ? `rgba(245,166,35,0.4)` : `rgba(91,245,185,0.35)`;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < bufLen; i++) {
+    const x = (i/bufLen)*W, y = (time[i]/255)*H;
+    i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+  requestAnimationFrame(drawViz);
+}
+
+// ════════════════════════════════════════════════════════════
+// FEEDBACK PARSING
+// ════════════════════════════════════════════════════════════
+
+const FEEDBACK_RULES = [
+  { patterns: [/more bass/i,/deeper/i,/low end/i,/boom/i], action: p => { p.warmth=Math.min(100,p.warmth+20); p.energy=Math.min(100,p.energy+10); }, response: 'Boosting low end...' },
+  { patterns: [/less bass/i,/thinner/i], action: p => { p.warmth=Math.max(0,p.warmth-20); }, response: 'Pulling back bass...' },
+  { patterns: [/speed.*up/i,/faster/i,/upbeat/i], action: p => { p.bpm=Math.min(160,p.bpm+15); p.energy=Math.min(100,p.energy+10); }, response: 'Picking up tempo...' },
+  { patterns: [/slow.*down/i,/slower/i,/chill/i,/relax/i,/calm/i], action: p => { p.bpm=Math.max(50,p.bpm-15); p.energy=Math.max(0,p.energy-15); }, response: 'Easing back...' },
+  { patterns: [/more energy/i,/pump/i,/hype/i,/intense/i,/harder/i], action: p => { p.energy=Math.min(100,p.energy+25); }, response: 'Cranking energy!' },
+  { patterns: [/softer/i,/quieter/i,/gentle/i,/mellow/i], action: p => { p.energy=Math.max(0,p.energy-25); }, response: 'Softening...' },
+  { patterns: [/complex/i,/more melody/i,/variation/i], action: p => { p.complexity=Math.min(100,p.complexity+25); }, response: 'Adding melodic variation...' },
+  { patterns: [/simple/i,/minimal/i,/strip/i,/clean/i], action: p => { p.complexity=Math.max(0,p.complexity-25); }, response: 'Stripping it back...' },
+  { patterns: [/dreamy/i,/float/i,/ethereal/i,/spacey/i], action: p => { p.space=Math.min(100,p.space+25); p.warmth=Math.min(100,p.warmth+10); }, response: 'Going dreamy...' },
+  { patterns: [/tight/i,/dry/i,/punchy/i], action: p => { p.space=Math.max(0,p.space-25); }, response: 'Tightening up...' },
+  { patterns: [/warm/i,/cozy/i,/lo-?fi/i], action: p => { p.warmth=Math.min(100,p.warmth+20); }, response: 'Warming it up...' },
+  { patterns: [/bright/i,/sharp/i,/clear/i], action: p => { p.warmth=Math.max(0,p.warmth-20); }, response: 'Brightening...' },
+  { patterns: [/dark/i,/moody/i,/noir/i], action: p => { p.warmth=Math.max(10,p.warmth-15); p.space=Math.min(100,p.space+20); }, response: 'Going darker...' },
+  { patterns: [/drop/i,/build/i,/peak/i], action: p => { p.energy=Math.min(100,p.energy+30); p.complexity=Math.min(100,p.complexity+20); }, response: 'Building!' },
+];
+
+function parseFeedback(text) {
+  for (const rule of FEEDBACK_RULES) {
+    for (const pat of rule.patterns) {
+      if (pat.test(text)) { rule.action(baseParams); return rule.response; }
+    }
+  }
+  return null;
+}
+
+// ════════════════════════════════════════════════════════════
+// MILESTONE REWARDS
+// ════════════════════════════════════════════════════════════
+
+let lastRewardFlow = 0, rewardCooldown = 0;
+function checkMilestones() {
+  const now = Date.now();
+  if (now < rewardCooldown) return;
+  if (flowScore >= 35 && lastRewardFlow < 35) {
+    playRewardTone(); addLog('Flow achieved', 'flow'); rewardCooldown = now + 5000;
+  }
+  if (flowScore >= 65 && lastRewardFlow < 65) {
+    playRewardTone(); setTimeout(playRewardTone, 200);
+    addLog('PEAK — locked in', 'flow'); rewardCooldown = now + 5000;
+  }
+  lastRewardFlow = flowScore;
+}
+setInterval(checkMilestones, 500);
+
+// ════════════════════════════════════════════════════════════
+// UI WIRING
+// ════════════════════════════════════════════════════════════
+
+const editor = document.getElementById('workspace-editor');
+const djLog = document.getElementById('djLog');
+const djInput = document.getElementById('djInput');
+const playBtn = document.getElementById('playBtn');
+const voiceBtn = document.getElementById('voiceBtn');
+
+function addLog(msg, type = 'shift') {
+  const el = document.createElement('div');
+  el.className = `log-entry ${type}`;
+  const prefixes = { user:'> ', flow:'~ ', drift:'! ', refocus:'* ', shift:'♪ ' };
+  el.textContent = (prefixes[type]||'♪ ') + msg;
+  djLog.appendChild(el);
+  djLog.scrollTop = djLog.scrollHeight;
+  while (djLog.children.length > 50) djLog.removeChild(djLog.firstChild);
+}
+
+editor.addEventListener('keydown', e => {
+  if (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Enter' || e.key === 'Tab') onKeystroke();
+});
+
+djInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && djInput.value.trim()) {
+    const text = djInput.value.trim();
+    addLog(text, 'user');
+    const r = parseFeedback(text);
+    if (r) addLog(r); else addLog("Try: 'more bass', 'dreamy', 'speed up'");
+    djInput.value = '';
+  }
+});
+
+// Vibe chips
+function applyVibeSoundDesign(v) {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  // Reconfigure oscillator waveforms
+  if (bassOsc) bassOsc.type = v.bassWave || 'sine';
+  if (leadOsc) leadOsc.type = v.leadWave || 'sawtooth';
+  padOscs.forEach(p => { p.osc.type = v.padWave || 'triangle'; });
+  // Update FM modulator ratios and depth
+  const fmRatio = v.padFMRatio || 1;
+  const fmDepth = v.padFMDepth || 60;
+  padMods.forEach((m, i) => {
+    if (padOscs[i]) {
+      m.osc.frequency.setTargetAtTime(padOscs[i].osc.frequency.value * fmRatio, t, 0.3);
+    }
+    m.gain.gain.setTargetAtTime(fmDepth, t, 0.3);
+  });
+  // LFO
+  if (lfoOsc) lfoOsc.frequency.setTargetAtTime(v.lfo?.rate || 0.08, t, 0.5);
+  if (lfoGain) lfoGain.gain.setTargetAtTime(v.lfo?.depth || 400, t, 0.5);
+  // Noise level
+  if (noiseGain) noiseGain.gain.setTargetAtTime(v.noiseLevel || 0.008, t, 0.5);
+  // Delay
+  if (delayNode) delayNode.delayTime.setTargetAtTime(v.delay?.time || 0.375, t, 0.5);
+  if (delayFeedback) delayFeedback.gain.setTargetAtTime(v.delay?.feedback || 0.3, t, 0.3);
+  if (delayGain) delayGain.gain.setTargetAtTime(v.delay?.mix || 0.2, t, 0.3);
+  // New motif for fresh feel
+  generateMotif();
+}
+
+document.querySelectorAll('.vibe-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const v = VIBES[chip.dataset.vibe]; if (!v) return;
+    currentVibe = chip.dataset.vibe;
+    baseParams = { energy:v.energy, complexity:v.complexity, warmth:v.warmth, space:v.space, bpm:v.bpm };
+    scaleNotes = v.scales; chordIndex = 0;
+    applyVibeSoundDesign(v);
+    document.getElementById('vibeName').textContent = v.name;
+    document.querySelectorAll('.vibe-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    addLog(`Base vibe → ${v.name}`);
+    maybeRefreshSpotifyOnVibeChange();
+  });
+});
+
+// ── PROJECT UI ──
+const projectSelect = document.getElementById('projectSelect');
+const focusBarWrap = document.getElementById('focusBarWrap');
+const projectKeywordsEl = document.getElementById('projectKeywords');
+
+function populateProjectSelect() {
+  while (projectSelect.options.length > 1) projectSelect.remove(1);
+  // Group by workstream
+  const groups = {};
+  projects.forEach(p => {
+    const ws = p.workstream || 'Other';
+    if (!groups[ws]) groups[ws] = [];
+    groups[ws].push(p);
+  });
+  Object.entries(groups).forEach(([ws, projs]) => {
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = ws;
+    projs.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      const lock = p.firewall === 'client' ? ' [client]' : p.firewall === 'internal' ? ' [int]' : '';
+      opt.textContent = p.name + lock;
+      optgroup.appendChild(opt);
+    });
+    projectSelect.appendChild(optgroup);
+  });
+}
+populateProjectSelect();
+
+function renderProjectKeywords() {
+  projectKeywordsEl.innerHTML = '';
+  if (!activeProject) return;
+  // Show first 12 keywords as tags
+  activeProject.keywords.slice(0, 12).forEach(kw => {
+    const tag = document.createElement('span');
+    tag.className = 'kw-tag';
+    tag.dataset.kw = kw;
+    tag.textContent = kw;
+    projectKeywordsEl.appendChild(tag);
+  });
+}
+
+projectSelect.addEventListener('change', () => {
+  const id = projectSelect.value;
+  activeProject = projects.find(p => p.id === id) || null;
+  focusScore = 50;
+  lastFocusState = '';
+  lastAnalyzedLength = 0;
+
+  if (activeProject) {
+    focusBarWrap.style.display = 'block';
+    document.getElementById('workspaceLabel').textContent = activeProject.name;
+    // Auto-switch vibe
+    const v = VIBES[activeProject.vibe];
+    if (v) {
+      currentVibe = activeProject.vibe;
+      baseParams = { energy:v.energy, complexity:v.complexity, warmth:v.warmth, space:v.space, bpm:v.bpm };
+      scaleNotes = v.scales; chordIndex = 0;
+      applyVibeSoundDesign(v);
+      document.getElementById('vibeName').textContent = v.name;
+      document.querySelectorAll('.vibe-chip').forEach(c => {
+        c.classList.toggle('active', c.dataset.vibe === activeProject.vibe);
+      });
+    }
+    addLog(`Project: ${activeProject.name} — focus tracking active`, 'flow');
+  } else {
+    focusBarWrap.style.display = 'none';
+    document.getElementById('workspaceLabel').textContent = 'Workspace';
+    document.getElementById('workspaceWrap').classList.remove('drifting', 'off-topic');
+  }
+  renderProjectKeywords();
+  updateFocusUI();
+  updateAnchorUI();
+  // Hide search if open
+  document.getElementById('anchorSearchWrap').style.display = 'none';
+});
+
+// Add project modal
+document.getElementById('addProjectBtn').addEventListener('click', () => {
+  document.getElementById('modalBackdrop').classList.add('open');
+  document.getElementById('projName').focus();
+});
+document.getElementById('modalCancel').addEventListener('click', () => {
+  document.getElementById('modalBackdrop').classList.remove('open');
+});
+document.getElementById('modalSave').addEventListener('click', () => {
+  const name = document.getElementById('projName').value.trim();
+  const kws = document.getElementById('projKeywords').value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const dws = document.getElementById('projDrift').value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const vibe = document.getElementById('projVibe').value;
+
+  if (!name || kws.length === 0) return;
+
+  const id = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  projects.push({ id, name, keywords: kws, driftWords: dws.length ? dws : ['twitter','reddit','youtube','instagram','news'], vibe });
+  populateProjectSelect();
+  projectSelect.value = id;
+  projectSelect.dispatchEvent(new Event('change'));
+
+  // Reset modal
+  document.getElementById('projName').value = '';
+  document.getElementById('projKeywords').value = '';
+  document.getElementById('projDrift').value = '';
+  document.getElementById('modalBackdrop').classList.remove('open');
+});
+
+// Play / Pause
+async function startSynthPlayback() {
+  if (!audioCtx) initAudio();
+  if (audioCtx.state === 'suspended') {
+    try { await audioCtx.resume(); } catch(e) { console.warn('AudioContext resume failed:', e); }
+  }
+  advanceBeat();
+  updateAudioNodes();
+}
+
+async function startPlayback() {
+  isPlaying = true; beatCount = 0;
+  broadcastPlaying();
+
+  if (spotifyConnected && spotifyMode) {
+    // Resume Spotify if paused, otherwise start fresh with recommendations
+    if (spotifyPlayer) {
+      const state = await spotifyPlayer.getCurrentState();
+      if (state && state.paused) {
+        await spotifyPlayer.resume();
+      } else {
+        await startSpotifyPlayback();
+      }
+    } else {
+      await startSpotifyPlayback();
+    }
+    // Always run viz + flow loops
+    drawViz();
+    flowTick();
+  } else {
+    await startSynthPlayback();
+    drawViz();
+    flowTick();
+  }
+
+  document.getElementById('statusDot').classList.add('live');
+  document.getElementById('statusText').textContent = spotifyConnected && spotifyMode ? 'Spotify' : 'Generating';
+  playBtn.textContent = 'pause'; playBtn.classList.add('playing');
+  addLog('Session started — type to build momentum');
+  editor.focus();
+}
+
+function stopPlayback() {
+  isPlaying = false;
+  if (spotifyPlayer && spotifyMode) spotifyPlayer.pause().catch(() => {});
+  document.getElementById('statusDot').classList.remove('live');
+  document.getElementById('statusText').textContent = 'Paused';
+  playBtn.textContent = 'play'; playBtn.classList.remove('playing');
+  addLog('Paused');
+}
+
+playBtn.addEventListener('click', () => isPlaying ? stopPlayback() : startPlayback());
+document.getElementById('startBtn').addEventListener('click', () => {
+  document.getElementById('startOverlay').classList.add('hidden');
+  startPlayback();
+});
+
+// ════════════════════════════════════════════════════════════
+// MIC → FLOW ENGINE
+// ════════════════════════════════════════════════════════════
+
+let micActive = false, micStream = null, micCtx = null, micAnalyser = null, micLevelFrame = null;
+let voiceEnergy = 0;
+let recognition = null, voiceRecActive = false, voiceRestartTimer = null, lastResultIndex = 0;
+const MIC_FLOW_GAIN = 0.04, MIC_THRESHOLD = 0.04, MIC_SMOOTHING = 0.85, NUM_MIC_BARS = 8;
+
+const micLevelWrap = document.getElementById('micLevelWrap');
+for (let i = 0; i < NUM_MIC_BARS; i++) {
+  const b = document.createElement('div'); b.className = 'mic-bar';
+  micLevelWrap.appendChild(b);
+}
+const micBars = micLevelWrap.querySelectorAll('.mic-bar');
+
+async function startMic() {
+  if (micActive) return;
+  try { micStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch(e) { addLog('Mic access denied'); return; }
+  micActive = true;
+  micCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = micCtx.createMediaStreamSource(micStream);
+  micAnalyser = micCtx.createAnalyser(); micAnalyser.fftSize = 512; micAnalyser.smoothingTimeConstant = 0.5;
+  src.connect(micAnalyser);
+  micLevelWrap.classList.add('active');
+  voiceBtn.classList.add('mic-active'); voiceBtn.textContent = 'mic on';
+  document.getElementById('voiceSub').textContent = 'listening';
+  startSpeechRec();
+  addLog('Mic ON — voice feeds flow + DJ commands', 'flow');
+  micLevelLoop();
+}
+
+function micLevelLoop() {
+  if (!micActive || !micAnalyser) return;
+  const data = new Float32Array(micAnalyser.fftSize);
+  micAnalyser.getFloatTimeDomainData(data);
+  let sum = 0; for (let i=0;i<data.length;i++) sum += data[i]*data[i];
+  const rms = Math.sqrt(sum/data.length);
+  voiceEnergy = voiceEnergy * MIC_SMOOTHING + rms * (1-MIC_SMOOTHING);
+  const level = Math.min(1, voiceEnergy / 0.12);
+  if (level > MIC_THRESHOLD/0.12) flowScore = Math.min(100, flowScore + MIC_FLOW_GAIN*level*3);
+
+  const freqData = new Uint8Array(micAnalyser.frequencyBinCount);
+  micAnalyser.getByteFrequencyData(freqData);
+  const step = Math.floor(freqData.length/NUM_MIC_BARS);
+  for (let i=0;i<NUM_MIC_BARS;i++) {
+    const val = freqData[i*step]/255;
+    micBars[i].style.height = (4+val*12)+'px';
+    micBars[i].classList.toggle('hot', val>0.2);
+  }
+  document.getElementById('voiceValue').textContent = Math.round(level*100) || '—';
+  document.getElementById('voiceSub').textContent = level>0.5?'speaking':level>0.1?'active':'listening';
+  micLevelFrame = requestAnimationFrame(micLevelLoop);
+}
+
+function stopMic() {
+  micActive = false;
+  if (micLevelFrame) cancelAnimationFrame(micLevelFrame);
+  if (micStream) { micStream.getTracks().forEach(t=>t.stop()); micStream=null; }
+  if (micCtx) { micCtx.close(); micCtx=null; }
+  micAnalyser = null; voiceEnergy = 0;
+  micLevelWrap.classList.remove('active');
+  voiceBtn.classList.remove('mic-active'); voiceBtn.textContent = 'mic';
+  micBars.forEach(b=>{ b.style.height='4px'; b.classList.remove('hot'); });
+  document.getElementById('voiceValue').textContent = '—';
+  document.getElementById('voiceSub').textContent = 'mic off';
+  stopSpeechRec(); addLog('Mic OFF');
+}
+
+function hasSpeechAPI() { return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window; }
+
+function startSpeechRec() {
+  if (!hasSpeechAPI() || voiceRecActive) return;
+  voiceRecActive = true; launchRecSession();
+  addLog('Voice commands active', 'shift');
+}
+function launchRecSession() {
+  if (!voiceRecActive) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SR();
+  recognition.continuous = true; recognition.interimResults = false; recognition.lang = 'en-US';
+  lastResultIndex = 0;
+  recognition.onresult = e => {
+    for (let i=lastResultIndex;i<e.results.length;i++) {
+      if (e.results[i].isFinal) {
+        const t = e.results[i][0].transcript.trim();
+        if (t && t.length>1) { addLog(t,'user'); const r=parseFeedback(t); if(r) addLog(r); }
+      }
+    }
+    lastResultIndex = e.results.length;
+  };
+  recognition.onerror = e => { if(e.error==='not-allowed'){stopSpeechRec();return;} };
+  recognition.onend = () => { if(voiceRecActive) voiceRestartTimer=setTimeout(()=>voiceRecActive&&launchRecSession(),200); };
+  try{recognition.start();}catch(e){setTimeout(()=>voiceRecActive&&launchRecSession(),400);}
+}
+function stopSpeechRec() {
+  voiceRecActive=false;
+  if(voiceRestartTimer) clearTimeout(voiceRestartTimer);
+  if(recognition){try{recognition.abort();}catch(e){} recognition=null;}
+}
+
+voiceBtn.addEventListener('click', () => micActive ? stopMic() : startMic());
+
+// ════════════════════════════════════════════════════════════
+// THRESHOLD + SPOTIFY INTEGRATION
+// ════════════════════════════════════════════════════════════
+
+const THRESHOLD_API  = 'https://thresholdlabs.io';
+// App identity — identifies this deployment to Threshold (not a user secret)
+const THRESHOLD_APP_TOKEN = 'thld_f55c4f831b537af1c243d145010638a19424024b8e307b2c5b1a345f5ca3f85e';
+const THRESHOLD_APP_ID    = 'c67d96eb-0baf-45de-9093-18c99104785f';
+
+// Per-user connect token (thld_ct_...) — stored in localStorage
+let thldToken = localStorage.getItem('thld_ct_token') || '';
+
+// ── Handle token returned from Threshold /connect redirect ──
+let _freshConnectToken = false; // true when token just arrived via URL
+(function handleConnectCallback() {
+  const params = new URLSearchParams(window.location.search);
+  const incoming = params.get('thld_token');
+  if (incoming && incoming.startsWith('thld_ct_')) {
+    thldToken = incoming;
+    _freshConnectToken = true;
+    localStorage.setItem('thld_ct_token', incoming);
+    // Clean URL so refresh doesn't re-trigger
+    window.history.replaceState({}, '', window.location.pathname);
+  }
+})();
+let spotifyAccessToken = null;
+let spotifyTokenExpiry = null;
+let spotifyDeviceId  = null;
+let spotifyPlayer    = null;
+let spotifySDKReady  = false;
+let spotifyConnected = false;
+let spotifyMode      = false;
+let recommendationQueue = [];
+let lastVibeForSpotify  = '';
+
+// ── Taste seeds (loaded after connect) ──
+let personalSeeds = { uris: [], tracks: [], artistIds: [] };
+
+// ── Project focus anchors — { [projectId]: { trackUri, trackName, trackArtist } } ──
+let projectAnchors = JSON.parse(localStorage.getItem('project_anchors') || '{}');
+let anchorCooldowns = {};  // { [projectId]: lastFiredMs }
+let anchorSearchTimeout = null;
+
+// ── Local companion (project-control bridge) ──
+const COMPANION_URL = 'http://localhost:7331/api';
+let companionConnected = false;
+let companionState     = null;
+let companionDriftCooldown = 0; // ms timestamp — don't re-fire within 5min
+
+async function pollCompanion() {
+  try {
+    const res = await fetch(COMPANION_URL, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error('bad status');
+    const data = await res.json();
+
+    companionState     = data;
+    companionConnected = data.connected;
+
+    const badge = document.getElementById('localBadge');
+    if (!data.connected) { badge.className = 'local-badge'; return; }
+
+    // Badge: drift state
+    const drifting = data.drift?.detected;
+    badge.className = 'local-badge active' + (drifting ? ' drift' : '');
+    badge.title = data.activeProject
+      ? `${data.activeProject.name} · focus ${data.focus.score}`
+      : 'project-control connected';
+
+    // Auto-select project if none active and companion has one
+    if (!activeProject && data.activeProject) {
+      const slug  = data.activeProject.slug;
+      const match = projects.find(p =>
+        p.id === slug || p.name.toLowerCase() === data.activeProject.name.toLowerCase()
+      );
+      if (match) {
+        document.getElementById('projectSelect').value = match.id;
+        document.getElementById('projectSelect').dispatchEvent(new Event('change'));
+        addLog(`🔗 Auto-project: ${match.name}`, 'flow');
+      } else {
+        // Show which project is active even without a match
+        addLog(`🔗 Working on: ${data.activeProject.name}`, 'flow');
+      }
+    }
+
+    // ── Project mismatch drift ──────────────────────────────────────────────────
+    // companion says you're working on X, but FlowDJ has Y selected → that IS drift
+    if (activeProject && data.activeProject && Date.now() - companionDriftCooldown > 5 * 60 * 1000) {
+      const cName = data.activeProject.name.toLowerCase();
+      const fName = activeProject.name.toLowerCase();
+      const matches = fName.includes(cName) || cName.includes(fName);
+      if (!matches) {
+        companionDriftCooldown = Date.now();
+        addLog(`🔗 You're in ${data.activeProject.name} but focused on ${activeProject.name}`, 'drift');
+        triggerFocusAnchor(); // fire the FlowDJ project's anchor (what you said you were working on)
+      }
+    }
+
+    // ── Screen Time drift — browsing / context-switching ────────────────────────
+    if (drifting && Date.now() - companionDriftCooldown > 5 * 60 * 1000) {
+      companionDriftCooldown = Date.now();
+      const reason = data.drift.reason || 'drifting';
+
+      // Use companion's project for anchor if it has one, else active project
+      let companionProject = null;
+      if (data.activeProject) {
+        const cName = data.activeProject.name.toLowerCase();
+        companionProject = projects.find(p =>
+          p.id === data.activeProject.slug ||
+          p.name.toLowerCase() === cName ||
+          p.name.toLowerCase().includes(cName) ||
+          cName.includes(p.name.toLowerCase())
+        ) || null;
+      }
+
+      const projectForLog = companionProject?.name || activeProject?.name || 'unknown';
+      addLog(`🔗 ${reason} detected (${projectForLog}) — triggering anchor`, 'drift');
+      triggerFocusAnchor(companionProject || undefined);
+    }
+  } catch (e) {
+    companionConnected = false;
+    document.getElementById('localBadge').className = 'local-badge';
+  }
+}
+
+// Start polling — silently ignore if companion isn't running
+setInterval(pollCompanion, 15_000);
+pollCompanion();
+
+// ── Threshold SDK: Pattern 1 (Signal Push) + Pattern 2 (Signal Read) ────────
+// Contract v0.3.0 — github.com/Threshold-Labs/threshold-sdk
+// CORS: Access-Control-Allow-Origin: * — direct browser calls, no proxy needed.
+// All errors return { error: string }.
+
+let _signalPushDisabled = false;  // set on 401/403/422 — config issue, stop retrying
+let _signalBackoffUntil = 0;      // set on 429 (Retry-After) or 503 (exponential)
+let _signalBackoffMs    = 5000;   // starts at 5s, doubles on repeated 503s
+
+async function thresholdPost(path, body, token = THRESHOLD_APP_TOKEN) {
+  const res = await fetch(`${THRESHOLD_API}${path}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(4000),
+  });
+  return res;
+}
+
+async function thresholdGet(path, token = THRESHOLD_APP_TOKEN) {
+  const res = await fetch(`${THRESHOLD_API}${path}`, {
+    headers: { 'Authorization': `Bearer ${token}` },
+    signal: AbortSignal.timeout(4000),
+  });
+  return res;
+}
+
+async function pushAttentionSignal() {
+  if (!isPlaying || _signalPushDisabled) return;
+  if (Date.now() < _signalBackoffUntil) return;
+
+  const focusState = activeProject
+    ? (document.getElementById('focusState')?.textContent?.toLowerCase() || null)
+    : null;
+
+  const payload = {
+    flowScore:     Math.round(flowScore),
+    zone:          (lastZone || 'idle').toLowerCase(),
+    wpm:           parseInt(document.getElementById('wpmValue')?.textContent || '0', 10),
+    voiceEnergy:   parseFloat(document.getElementById('voiceValue')?.textContent || '0') / 100,
+    activeProject: activeProject?.id || null,
+    focusScore:    activeProject ? Math.round(focusScore) : null,
+    focusState,
+    activeVibe:    currentVibe,
+    musicParams: {
+      energy:     Math.round(params.energy),
+      complexity: Math.round(params.complexity),
+      warmth:     Math.round(params.warmth),
+      space:      Math.round(params.space),
+      bpm:        Math.round(params.bpm),
+    },
+    pushedAt: new Date().toISOString(),
+  };
+
+  try {
+    const res = await thresholdPost('/api/signals/ai-dj', payload);
+    if (res.ok) {
+      _signalBackoffMs = 5000; // reset backoff on success
+      return;
+    }
+    // Error contract: 401/403/422 → don't retry (config issue)
+    if ([401, 403, 422].includes(res.status)) {
+      _signalPushDisabled = true;
+      console.warn(`[FlowDJ] Signal push disabled: HTTP ${res.status} — check app token`);
+      return;
+    }
+    // 429 → respect Retry-After header
+    if (res.status === 429) {
+      const retryAfter = parseInt(res.headers.get('Retry-After') || '60', 10);
+      _signalBackoffUntil = Date.now() + retryAfter * 1000;
+      console.warn(`[FlowDJ] Rate limited — backing off ${retryAfter}s`);
+      return;
+    }
+    // 503 → exponential backoff, never alert user
+    if (res.status === 503) {
+      _signalBackoffUntil = Date.now() + _signalBackoffMs;
+      _signalBackoffMs    = Math.min(_signalBackoffMs * 2, 5 * 60 * 1000); // cap at 5min
+      return;
+    }
+  } catch(e) {
+    // Network error / timeout — silent, don't touch backoff
+    console.warn('[FlowDJ] Signal push network error:', e.message);
+  }
+}
+
+setInterval(pushAttentionSignal, 5000);
+
+// ── Pattern 2: Signal Read ────────────────────────────────────────────────────
+// Read back the last signal stored for this app's user. Used for cross-device
+// session continuity — restore last known vibe/project on page load.
+
+async function readLastSignal(source = 'ai-dj') {
+  try {
+    const res = await thresholdGet(`/api/signals/${source}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch(e) { return null; }
+}
+
+// Called by the Spotify SDK when it loads
+window.onSpotifyWebPlaybackSDKReady = () => {
+  spotifySDKReady = true;
+  if (thldToken) {
+    if (_freshConnectToken) {
+      // Token just arrived from Threshold redirect — open modal so user sees status
+      document.getElementById('connectStatus').style.display = 'none';
+      document.getElementById('connectBackdrop').classList.add('open');
+      showConnectStatus('Connecting to Spotify…', true);
+      attemptSpotifyConnect(thldToken, true);
+    } else {
+      attemptSpotifyConnect(thldToken, false);
+    }
+  }
+};
+
+// ── Token fetch / refresh ──
+
+async function fetchSpotifyToken() {
+  const res = await fetch(`${THRESHOLD_API}/api/integrations/token?source=spotify`, {
+    headers: {
+      'Authorization': `Bearer ${thldToken}`,
+      'X-App-Token': THRESHOLD_APP_TOKEN,
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  spotifyAccessToken = data.accessToken;
+  spotifyTokenExpiry = data.expiresAt ? new Date(data.expiresAt) : null;
+  return data.accessToken;
+}
+
+function scheduleTokenRefresh() {
+  if (!spotifyTokenExpiry) return;
+  const msUntilRefresh = new Date(spotifyTokenExpiry) - Date.now() - 5 * 60 * 1000;
+  if (msUntilRefresh > 0) {
+    setTimeout(async () => {
+      try { await fetchSpotifyToken(); scheduleTokenRefresh(); }
+      catch(e) { addLog('Spotify token refresh failed', 'drift'); }
+    }, msUntilRefresh);
+  }
+}
+
+// ── Player init ──
+
+async function initSpotifyPlayer() {
+  return new Promise((resolve, reject) => {
+    if (spotifyPlayer) { spotifyPlayer.disconnect(); spotifyPlayer = null; }
+
+    const player = new Spotify.Player({
+      name: 'FlowDJ',
+      getOAuthToken: async cb => {
+        if (spotifyTokenExpiry && new Date(spotifyTokenExpiry) - Date.now() < 60000) {
+          try { await fetchSpotifyToken(); } catch(e) {}
+        }
+        cb(spotifyAccessToken);
+      },
+      volume: 0.7,
+    });
+
+    player.addListener('ready', ({ device_id }) => {
+      spotifyDeviceId = device_id;
+      spotifyPlayer   = player;
+      resolve();
+    });
+    player.addListener('not_ready', () => addLog('Spotify player went offline', 'drift'));
+    player.addListener('player_state_changed', state => {
+      if (!state) return;
+      const track = state.track_window?.current_track;
+      if (track) updateNowPlaying(track);
+      // Auto-advance when a track finishes
+      if (!state.paused && state.position === 0 && state.track_window.previous_tracks.length > 0) {
+        playNextFromQueue();
+      }
+    });
+    player.addListener('initialization_error', ({ message }) => reject(new Error(message)));
+    player.addListener('authentication_error', ({ message }) => reject(new Error('Auth: ' + message)));
+    player.addListener('account_error', ({ message }) => reject(new Error('Spotify Premium required')));
+    player.connect();
+  });
+}
+
+// ── Connect flow ──
+
+async function attemptSpotifyConnect(token, showStatus = true) {
+  thldToken = token;
+  try {
+    await fetchSpotifyToken();
+
+    if (!spotifySDKReady) {
+      if (showStatus) showConnectStatus('Spotify SDK loading — try again in a moment', false);
+      return;
+    }
+
+    if (showStatus) showConnectStatus('Initialising player...', true);
+    await initSpotifyPlayer();
+
+    spotifyConnected = true;
+    spotifyMode      = true;
+    localStorage.setItem('thld_ct_token', token);
+    scheduleTokenRefresh();
+
+    document.getElementById('connectBtn').textContent = '● Spotify';
+    document.getElementById('connectBtn').classList.add('linked');
+    document.getElementById('connectBackdrop').classList.remove('open');
+    addLog('Spotify connected via Threshold', 'flow');
+
+    fetchPersonalSeeds();
+    updateAnchorUI();
+  } catch(e) {
+    if (showStatus) showConnectStatus(e.message, false);
+    else addLog(`Threshold connect: ${e.message}`, 'drift');
+  }
+}
+
+function showConnectStatus(msg, ok) {
+  const el = document.getElementById('connectStatus');
+  el.textContent = msg;
+  el.className = 'connect-status ' + (ok ? 'ok' : 'err');
+  el.style.display = 'block';
+}
+
+// ── Taste profile ──
+
+async function fetchPersonalSeeds() {
+  try {
+    const [tracksData, artistsData] = await Promise.all([
+      spotifyFetch('/me/top/tracks?limit=30&time_range=medium_term'),
+      spotifyFetch('/me/top/artists?limit=10&time_range=medium_term'),
+    ]);
+    const tracks  = tracksData.items  || [];
+    const artists = artistsData.items || [];
+
+    // Store full URIs — used as playback queue
+    personalSeeds.uris      = tracks.map(t => t.uri);
+    personalSeeds.tracks    = tracks.slice(0, 5).map(t => t.id);
+    personalSeeds.artistIds = artists.slice(0, 3).map(a => a.id);
+
+    const topArtistNames = artists.slice(0, 2).map(a => a.name).join(', ');
+    addLog(`Taste profile: ${topArtistNames || 'loaded'}`, 'flow');
+
+    // ── Compute AudioFeatureProfile from top track IDs ──────────────────────
+    // Issue #5 path 2: FlowDJ fetches audio features, derives profile locally,
+    // personalizes synth params, and pushes result as spotify-taste signal.
+    const sampleIds = personalSeeds.tracks.slice(0, 5);
+    if (sampleIds.length > 0) {
+      try {
+        const featData = await spotifyFetch(`/audio-features?ids=${sampleIds.join(',')}`);
+        const feats = (featData.audio_features || []).filter(Boolean);
+        if (feats.length > 0) {
+          const avg = k => feats.reduce((s, f) => s + (f[k] || 0), 0) / feats.length;
+          const profile = {
+            energy:           +avg('energy').toFixed(3),
+            valence:          +avg('valence').toFixed(3),
+            danceability:     +avg('danceability').toFixed(3),
+            acousticness:     +avg('acousticness').toFixed(3),
+            instrumentalness: +avg('instrumentalness').toFixed(3),
+            tempo:            +avg('tempo').toFixed(1),
+          };
+
+          // Personalize base synth params from taste profile
+          // valence → warmth (sad=cold, happy=warm), energy → energy, acousticness → space
+          const vibeBase = VIBES[currentVibe];
+          baseParams.warmth  = Math.round(vibeBase.warmth  * 0.6 + profile.valence * 40);
+          baseParams.energy  = Math.round(vibeBase.energy  * 0.6 + profile.energy  * 40);
+          baseParams.space   = Math.round(vibeBase.space   * 0.6 + profile.acousticness * 40);
+
+          addLog(`Synth tuned to your taste (energy ${Math.round(profile.energy*100)}, valence ${Math.round(profile.valence*100)})`, 'flow');
+
+          // ── Push as spotify-taste signal (Pattern 1) ──────────────────────
+          const topGenres = [...new Set(artists.flatMap(a => a.genres || []))].slice(0, 5);
+          const tastePayload = {
+            topGenres,
+            audioFeatureProfile: profile,
+            topArtists: artists.slice(0, 5).map(a => ({ name: a.name, genres: a.genres?.slice(0, 3) || [] })),
+            pushedAt: new Date().toISOString(),
+          };
+          thresholdPost('/api/signals/spotify-taste', tastePayload)
+            .catch(e => console.warn('[FlowDJ] spotify-taste push failed:', e.message));
+        }
+      } catch(e) {
+        // Audio features unavailable — degrade gracefully, seeds still usable
+        console.warn('[FlowDJ] Audio features fetch failed:', e.message);
+      }
+    }
+  } catch(e) {
+    // Full seed fetch failed — silently degrade to untuned synth
+  }
+}
+
+// ── Focus anchor ──
+
+function triggerFocusAnchor(projectOverride) {
+  if (!spotifyConnected) return;
+
+  // Priority: companion's detected project > manually selected project
+  const project = projectOverride || activeProject;
+  if (!project) return;
+
+  const anchor = projectAnchors[project.id];
+  if (!anchor) {
+    // If override had no anchor, try falling back to manually selected
+    if (projectOverride && activeProject && activeProject.id !== projectOverride.id) {
+      const fallbackAnchor = projectAnchors[activeProject.id];
+      if (fallbackAnchor) {
+        triggerFocusAnchor(); // retry with no override
+        return;
+      }
+    }
+    addLog(`♪ no anchor set for ${project.name} — add one below`, 'drift');
+    return;
+  }
+  const last = anchorCooldowns[project.id] || 0;
+  if (Date.now() - last < 5 * 60 * 1000) return; // 5-min cooldown
+  anchorCooldowns[project.id] = Date.now();
+  // Re-enable Spotify mode even if synth fallback kicked in
+  spotifyMode = true;
+  recommendationQueue.unshift(anchor.trackUri);
+  addLog(`♪ ${anchor.trackName} — snapping you back to ${project.name}`, 'refocus');
+  if (isPlaying) playNextFromQueue();
+}
+
+function updateAnchorUI() {
+  const section = document.getElementById('anchorSection');
+  if (!activeProject || !spotifyConnected) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  const anchor = projectAnchors[activeProject.id];
+  const chip   = document.getElementById('anchorChip');
+  const btn    = document.getElementById('anchorLinkBtn');
+  if (anchor) {
+    chip.style.display = 'flex';
+    document.getElementById('anchorTrackName').textContent = anchor.trackName;
+    btn.textContent = '♪ change track';
+  } else {
+    chip.style.display = 'none';
+    btn.textContent = '♪ link focus track';
+  }
+}
+
+async function searchAndShowAnchorResults(query) {
+  if (!spotifyConnected || !query) return;
+  try {
+    const data = await spotifyFetch(`/search?q=${encodeURIComponent(query)}&type=track&limit=5`);
+    const tracks = data.tracks?.items || [];
+    const resultsEl = document.getElementById('anchorResults');
+    if (!tracks.length) { resultsEl.innerHTML = '<div style="padding:8px;font-size:10px;color:var(--text-dim)">No results</div>'; return; }
+    resultsEl.innerHTML = tracks.map(t => {
+      const img = t.album?.images?.[2]?.url || t.album?.images?.[0]?.url || '';
+      const artist = t.artists.map(a => a.name).join(', ');
+      return `<div class="anchor-result"
+        data-uri="${t.uri}"
+        data-name="${t.name.replace(/"/g,'&quot;')}"
+        data-artist="${artist.replace(/"/g,'&quot;')}"
+      >${img ? `<img src="${img}" alt="">` : '<div style="width:26px;height:26px;border-radius:3px;background:var(--surface2);flex-shrink:0"></div>'}
+        <div><div class="ar-name">${t.name}</div><div class="ar-artist">${artist}</div></div>
+      </div>`;
+    }).join('');
+    resultsEl.querySelectorAll('.anchor-result').forEach(el => {
+      el.addEventListener('click', () => {
+        if (!activeProject) return;
+        const track = { trackUri: el.dataset.uri, trackName: el.dataset.name, trackArtist: el.dataset.artist };
+        projectAnchors[activeProject.id] = track;
+        localStorage.setItem('project_anchors', JSON.stringify(projectAnchors));
+        document.getElementById('anchorSearchWrap').style.display = 'none';
+        updateAnchorUI();
+        addLog(`♪ Anchor: ${track.trackName}`, 'flow');
+      });
+    });
+  } catch(e) {}
+}
+
+// ── Vibe → Spotify audio features ──
+
+const VIBE_GENRES = {
+  chill:  ['chill', 'lo-fi', 'ambient'],
+  focus:  ['ambient', 'classical', 'study'],
+  energy: ['electronic', 'dance', 'edm'],
+  dreamy: ['dream-pop', 'ambient', 'shoegaze'],
+  dark:   ['dark-ambient', 'industrial', 'minimal-techno'],
+  jazz:   ['jazz', 'bossa-nova', 'smooth-jazz'],
+};
+
+function vibeToSpotifyFeatures(p) {
+  return {
+    target_energy:           +(p.energy / 100).toFixed(2),
+    target_tempo:            Math.round(p.bpm),
+    target_valence:          +(p.warmth / 100).toFixed(2),
+    target_acousticness:     +(p.space / 200).toFixed(2),
+    target_instrumentalness: p.complexity < 30 ? 0.8 : 0.5,
+  };
+}
+
+async function spotifyFetch(path, options = {}) {
+  const res = await fetch(`https://api.spotify.com/v1${path}`, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${spotifyAccessToken}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+  if (!res.ok) throw new Error(`Spotify API ${res.status}`);
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+async function getRecommendations() {
+  // Spotify /recommendations was deprecated Nov 2024.
+  // Use top tracks (shuffled) as the queue — taste-seeded by definition.
+  // Never throws — returns [] if everything fails.
+  try {
+    if (personalSeeds.uris && personalSeeds.uris.length > 0) {
+      return [...personalSeeds.uris].sort(() => Math.random() - 0.5).slice(0, 15);
+    }
+    // Seeds not loaded yet — try recently played
+    try {
+      const data = await spotifyFetch('/me/player/recently-played?limit=20');
+      const uris = (data.items || []).map(i => i.track?.uri).filter(Boolean);
+      if (uris.length > 0) return [...uris].sort(() => Math.random() - 0.5);
+    } catch(e) {}
+    // Last resort: saved tracks
+    try {
+      const data = await spotifyFetch('/me/tracks?limit=20');
+      const uris = (data.items || []).map(i => i.track?.uri).filter(Boolean);
+      if (uris.length > 0) return uris.sort(() => Math.random() - 0.5);
+    } catch(e) {}
+  } catch(e) {}
+  return [];
+}
+
+async function playNextFromQueue() {
+  if (recommendationQueue.length === 0) {
+    recommendationQueue = await getRecommendations();
+  }
+  const uri = recommendationQueue.shift();
+  if (!uri || !spotifyDeviceId) return;
+  try {
+    await spotifyFetch(`/me/player/play?device_id=${spotifyDeviceId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ uris: [uri, ...recommendationQueue.slice(0, 4)] }),
+    });
+  } catch(e) { addLog('Spotify playback error: ' + e.message, 'drift'); }
+}
+
+async function startSpotifyPlayback() {
+  recommendationQueue = await getRecommendations();
+  if (recommendationQueue.length === 0) {
+    addLog('Spotify: no tracks available — falling back to synth', 'drift');
+    await startSynthPlayback();
+    return;
+  }
+  addLog(`Loading ${VIBES[currentVibe].name} tracks from Spotify…`, 'shift');
+  await playNextFromQueue();
+}
+
+function updateNowPlaying(track) {
+  const art = track.album?.images?.[2]?.url || track.album?.images?.[0]?.url || '';
+  document.getElementById('npArt').src = art;
+  document.getElementById('npTrack').textContent = track.name;
+  document.getElementById('npArtist').textContent = track.artists?.map(a => a.name).join(', ') || '—';
+  document.getElementById('nowPlaying').style.display = 'flex';
+}
+
+function maybeRefreshSpotifyOnVibeChange() {
+  if (!spotifyMode || !spotifyConnected) return;
+  if (currentVibe === lastVibeForSpotify) return;
+  lastVibeForSpotify = currentVibe;
+  recommendationQueue = [];
+  if (isPlaying) {
+    getRecommendations().then(uris => {
+      recommendationQueue = uris;
+      addLog(`Spotify queue refreshed for ${VIBES[currentVibe].name}`, 'shift');
+    }).catch(() => {});
+  }
+}
+
+// ── UI wiring ──
+
+document.getElementById('connectBtn').addEventListener('click', () => {
+  document.getElementById('connectStatus').style.display = 'none';
+  document.getElementById('thldTokenInput').value = thldToken;
+  document.getElementById('connectBackdrop').classList.add('open');
+});
+
+document.getElementById('connectViaThreshold').addEventListener('click', () => {
+  const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
+  const url = `${THRESHOLD_API}/connect?app_id=${THRESHOLD_APP_ID}&source=spotify&redirect_uri=${redirectUri}`;
+  window.location.href = url;
+});
+
+document.getElementById('connectCancel').addEventListener('click', () => {
+  document.getElementById('connectBackdrop').classList.remove('open');
+});
+
+document.getElementById('connectBackdrop').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+
+document.getElementById('connectSave').addEventListener('click', async () => {
+  const token = document.getElementById('thldTokenInput').value.trim();
+  if (!token.startsWith('thld_ct_')) {
+    showConnectStatus('Token must start with thld_ct_', false);
+    return;
+  }
+  const btn = document.getElementById('connectSave');
+  btn.textContent = 'Connecting…'; btn.disabled = true;
+  await attemptSpotifyConnect(token, true);
+  btn.textContent = 'Connect'; btn.disabled = false;
+});
+
+// ── Anchor UI wiring ──
+document.getElementById('anchorLinkBtn').addEventListener('click', () => {
+  const wrap = document.getElementById('anchorSearchWrap');
+  const open = wrap.style.display !== 'none';
+  wrap.style.display = open ? 'none' : '';
+  if (!open) {
+    const inp = document.getElementById('anchorSearch');
+    inp.value = '';
+    document.getElementById('anchorResults').innerHTML = '';
+    inp.focus();
+  }
+});
+
+document.getElementById('anchorRemove').addEventListener('click', () => {
+  if (!activeProject) return;
+  delete projectAnchors[activeProject.id];
+  localStorage.setItem('project_anchors', JSON.stringify(projectAnchors));
+  updateAnchorUI();
+  addLog('Focus anchor removed', 'drift');
+});
+
+document.getElementById('anchorSearch').addEventListener('input', e => {
+  clearTimeout(anchorSearchTimeout);
+  const q = e.target.value.trim();
+  if (!q) { document.getElementById('anchorResults').innerHTML = ''; return; }
+  anchorSearchTimeout = setTimeout(() => searchAndShowAnchorResults(q), 380);
+});
+
+document.getElementById('npSkip').addEventListener('click', () => {
+  if (spotifyPlayer) spotifyPlayer.nextTrack().catch(() => playNextFromQueue());
+  else playNextFromQueue();
+});
+
+// Auto-restore saved token on load (including from redirect callback)
+if (thldToken) {
+  if (_freshConnectToken) {
+    // Token just arrived from Threshold redirect — open modal to show status
+    // SDK ready callback will handle connecting; if SDK already ready, do it now
+    document.getElementById('connectStatus').style.display = 'none';
+    document.getElementById('connectBackdrop').classList.add('open');
+    showConnectStatus('Connecting to Spotify…', true);
+    if (typeof Spotify !== 'undefined' && spotifySDKReady) {
+      attemptSpotifyConnect(thldToken, true);
+    }
+    // else: onSpotifyWebPlaybackSDKReady will fire and connect with showStatus=true
+  } else {
+    // Saved token from previous session — silent auto-connect via SDK ready callback
+    if (typeof Spotify !== 'undefined' && spotifySDKReady) {
+      attemptSpotifyConnect(thldToken, false);
+    }
+  }
+}
+</script>
+</body>
+</html>
