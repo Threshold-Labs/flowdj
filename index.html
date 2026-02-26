@@ -2165,8 +2165,12 @@ async function pushAttentionSignal() {
 setInterval(pushAttentionSignal, 5000);
 
 // ── Pattern 2: project-control signal read ───────────────────────────────────
-// Poll GET /api/signals/project-control every 30s (same-user self-read,
-// no explicit grant required). Map focusScore/activeProject/drift → music.
+// Poll GET /api/signals/project-control every 30s.
+// SDK 0.6.0: same-user cross-app reads need no grant — "same user, same token"
+// is the implicit grant. This was live behavior that wasn't written down until
+// FlowDJ's issue #26 forced the clarification.
+// pushedAt staleness: 5-min threshold is FlowDJ's consumer-defined rule,
+// now the reference example in the contract. Map focusScore/activeProject/drift → music.
 
 let _pcSignalLastApplied = 0;
 
@@ -2242,17 +2246,24 @@ setInterval(pollProjectControlSignal, 30_000);
 // Run once immediately on play — see startPlayback() hook below
 
 // ── Pattern 4: vault credential + graph topology ──────────────────────────────
-// Request a signed vault credential from Threshold, present it to
-// project-control's vault endpoint, read graph edges. Map density → complexity.
-// Data never touches Threshold — local vault, local verification.
+// SDK 0.6.0: INTEGRATION_CONTRACT.vault is now fully typed with register,
+// capabilities, credential issuance (expiresAt, 15-min TTL), and JWKS endpoint.
+// Flow: POST /api/apps/project-control/vault/credential → thld_va_ JWT
+//       GET  localhost:9111/vault/graph/edges  Bearer thld_va_...
+// project-control verifies locally via verifyVaultCredential() — data never
+// touches Threshold. Map density → complexity.
 
 let _vaultCredential      = null;  // thld_va_... JWT
 let _vaultCredentialExpiry = 0;
 let _graphDensity         = null;  // null = not loaded yet
 
 async function fetchVaultCredential() {
-  // Reuse if not expired (credentials are short-lived, check with 60s buffer)
-  if (_vaultCredential && Date.now() < _vaultCredentialExpiry - 60_000) {
+  // SDK 0.6.0: expiresAt is now explicit in the credential response (15-min TTL).
+  // Refresh when less than 20% of lifetime remains — for 15min that's ~3min buffer.
+  const now = Date.now();
+  const lifetime = _vaultCredentialExpiry - (_vaultCredentialExpiry - 15 * 60_000); // 15min
+  const buffer = lifetime * 0.2; // 20% of TTL
+  if (_vaultCredential && now < _vaultCredentialExpiry - buffer) {
     return _vaultCredential;
   }
   try {
@@ -2261,6 +2272,7 @@ async function fetchVaultCredential() {
     });
     if (!res.ok) return null;
     const { credential, expiresAt } = await res.json();
+    if (!credential || !expiresAt) return null;
     _vaultCredential       = credential;
     _vaultCredentialExpiry = new Date(expiresAt).getTime();
     return credential;
