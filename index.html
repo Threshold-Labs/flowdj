@@ -1824,6 +1824,10 @@ async function startPlayback() {
   playBtn.textContent = 'pause'; playBtn.classList.add('playing');
   addLog('Session started — type to build momentum');
   editor.focus();
+
+  // Immediately pull project-control signal + graph topology on session start
+  pollProjectControlSignal();
+  pollGraphTopology();
 }
 
 function stopPlayback() {
@@ -2160,17 +2164,149 @@ async function pushAttentionSignal() {
 
 setInterval(pushAttentionSignal, 5000);
 
-// ── Pattern 2: Signal Read ────────────────────────────────────────────────────
-// Read back the last signal stored for this app's user. Used for cross-device
-// session continuity — restore last known vibe/project on page load.
+// ── Pattern 2: project-control signal read ───────────────────────────────────
+// Poll GET /api/signals/project-control every 30s (same-user self-read,
+// no explicit grant required). Map focusScore/activeProject/drift → music.
 
-async function readLastSignal(source = 'ai-dj') {
+let _pcSignalLastApplied = 0;
+
+async function pollProjectControlSignal() {
   try {
-    const res = await thresholdGet(`/api/signals/${source}`);
+    const res = await thresholdGet('/api/signals/project-control');
+    if (!res.ok) return;
+    const { signal, pushedAt } = await res.json();
+    if (!signal || !pushedAt) return;
+
+    // Skip stale signals (>5min old — project-control probably stopped)
+    if (Date.now() - new Date(pushedAt).getTime() > 5 * 60 * 1000) return;
+    // Deduplicate — only apply if fresher than last application
+    if (new Date(pushedAt).getTime() <= _pcSignalLastApplied) return;
+    _pcSignalLastApplied = new Date(pushedAt).getTime();
+
+    const { focusScore: pcFocus, activeProject: pcProject, driftDetected } = signal;
+
+    // ── Map activeProject → vibe if no project manually selected ──
+    if (pcProject && !activeProject) {
+      const match = projects.find(p =>
+        p.id === pcProject ||
+        pcProject.includes(p.id) ||
+        p.id.includes(pcProject.split('/').pop())
+      );
+      if (match && isPlaying) {
+        const el = document.getElementById('projectSelect');
+        el.value = match.id;
+        el.dispatchEvent(new Event('change'));
+        addLog(`⚡ project-control: auto-select ${match.name}`, 'flow');
+      }
+    }
+
+    // ── Map focusScore → energy/complexity ──
+    if (typeof pcFocus === 'number') {
+      // Blend: 60% current params, 40% project-control signal
+      // High pc focus → push energy and complexity up; low → pull down
+      const pcInfluence = (pcFocus - 50) / 50; // -1..+1
+      baseParams.energy     = Math.max(0, Math.min(100, baseParams.energy     + pcInfluence * 12));
+      baseParams.complexity = Math.max(0, Math.min(100, baseParams.complexity + pcInfluence * 8));
+    }
+
+    // ── Drift → crossfade transition ──
+    if (driftDetected && isPlaying) {
+      // Temporarily soften and darken — create pull back toward work
+      const prev = { ...baseParams };
+      baseParams.energy     = Math.max(10, baseParams.energy     - 20);
+      baseParams.warmth     = Math.max(10, baseParams.warmth     - 15);
+      baseParams.complexity = Math.max(5,  baseParams.complexity - 15);
+      addLog(`⚡ project-control: drift detected — pulling back`, 'drift');
+      // Restore after 45s (if they've refocused by then)
+      setTimeout(() => {
+        if (baseParams.energy < prev.energy) {
+          baseParams.energy     = prev.energy;
+          baseParams.warmth     = prev.warmth;
+          baseParams.complexity = prev.complexity;
+        }
+      }, 45_000);
+    }
+
+    // ── focusState off-topic → pull toward active project vibe ──
+    if (signal.focusState === 'off-topic' && activeProject) {
+      const targetVibe = VIBES[activeProject.vibe];
+      if (targetVibe) {
+        baseParams.warmth  = Math.round(baseParams.warmth  * 0.7 + targetVibe.warmth  * 0.3);
+        baseParams.space   = Math.round(baseParams.space   * 0.7 + targetVibe.space   * 0.3);
+      }
+    }
+  } catch(e) { /* silent */ }
+}
+
+setInterval(pollProjectControlSignal, 30_000);
+// Run once immediately on play — see startPlayback() hook below
+
+// ── Pattern 4: vault credential + graph topology ──────────────────────────────
+// Request a signed vault credential from Threshold, present it to
+// project-control's vault endpoint, read graph edges. Map density → complexity.
+// Data never touches Threshold — local vault, local verification.
+
+let _vaultCredential      = null;  // thld_va_... JWT
+let _vaultCredentialExpiry = 0;
+let _graphDensity         = null;  // null = not loaded yet
+
+async function fetchVaultCredential() {
+  // Reuse if not expired (credentials are short-lived, check with 60s buffer)
+  if (_vaultCredential && Date.now() < _vaultCredentialExpiry - 60_000) {
+    return _vaultCredential;
+  }
+  try {
+    const res = await thresholdPost('/api/apps/project-control/vault/credential', {
+      scope: 'edges:read:current',
+    });
     if (!res.ok) return null;
-    return await res.json();
+    const { credential, expiresAt } = await res.json();
+    _vaultCredential       = credential;
+    _vaultCredentialExpiry = new Date(expiresAt).getTime();
+    return credential;
   } catch(e) { return null; }
 }
+
+async function pollGraphTopology() {
+  const credential = await fetchVaultCredential();
+  if (!credential) return;
+
+  try {
+    const res = await fetch('http://localhost:9111/vault/graph/edges', {
+      headers: { 'Authorization': `Bearer ${credential}` },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) return;
+    const { edges } = await res.json();
+    if (!Array.isArray(edges)) return;
+
+    const edgeCount  = edges.length;
+    // Unique nodes referenced in edges
+    const nodeSet    = new Set(edges.flatMap(e => [e.source, e.target]));
+    const nodeCount  = nodeSet.size;
+    // Density: edges / max_possible_edges for this node count
+    const maxEdges   = nodeCount * (nodeCount - 1) / 2;
+    const density    = maxEdges > 0 ? edgeCount / maxEdges : 0;
+    // Average degree (connectivity)
+    const avgDegree  = nodeCount > 0 ? (edgeCount * 2) / nodeCount : 0;
+
+    _graphDensity = { edgeCount, nodeCount, density, avgDegree };
+
+    // ── Map to music texture complexity ──
+    // Dense interconnected graph → complex layered sound
+    // Sparse tree → minimal ambient
+    // avgDegree normalised: 2 = tree, 10 = dense = max influence
+    const densityInfluence = Math.min(1, avgDegree / 10); // 0..1
+    const targetComplexity = 15 + densityInfluence * 60;  // 15..75
+    // Blend softly — don't override user intent
+    baseParams.complexity = Math.round(baseParams.complexity * 0.6 + targetComplexity * 0.4);
+
+    addLog(`⚡ graph: ${edgeCount} edges, ${nodeCount} nodes → complexity ${Math.round(targetComplexity)}`, 'shift');
+  } catch(e) { /* silent — project-control may not be running */ }
+}
+
+// Poll graph topology every 2 minutes (changes slowly)
+setInterval(pollGraphTopology, 2 * 60_000);
 
 // Called by the Spotify SDK when it loads
 window.onSpotifyWebPlaybackSDKReady = () => {
