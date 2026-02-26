@@ -407,13 +407,13 @@
 <div class="connect-backdrop" id="connectBackdrop">
   <div class="connect-modal">
     <h3>Connect your Spotify</h3>
-    <p>FlowDJ uses Threshold to access your Spotify data. Connect at <a href="https://thresholdlabs.io/integrations" target="_blank">thresholdlabs.io/integrations</a>, then paste your connect token below.</p>
+    <p>FlowDJ uses Threshold to access your Spotify data. You stay in control — authorize once, revoke anytime.</p>
     <div id="connectStatus" class="connect-status" style="display:none"></div>
     <button class="primary" id="connectViaThreshold" style="width:100%;padding:10px;border-radius:10px;border:1px solid #1DB954;background:rgba(29,185,84,0.12);color:#1DB954;font-family:inherit;font-size:13px;cursor:pointer;margin-bottom:10px;">
-      Open Threshold Integrations ↗
+      Connect via Threshold
     </button>
-    <input type="text" id="thldTokenInput" placeholder="thld_ct_xxxxxxxx  — paste connect token" autocomplete="off" style="margin-bottom:8px;">
-    <div class="modal-actions" style="margin-top:0;margin-bottom:8px;">
+    <input type="text" id="thldTokenInput" style="display:none" autocomplete="off">
+    <div class="modal-actions" style="display:none;margin-top:0;margin-bottom:8px;">
       <button id="connectSave" class="primary">Connect</button>
     </div>
     <button id="connectCancel" style="width:100%;background:none;border:none;color:var(--text-dim);font-family:inherit;font-size:11px;cursor:pointer;padding:4px;">Cancel</button>
@@ -2444,69 +2444,79 @@ function showConnectStatus(msg, ok) {
 
 // ── Taste profile ──
 
+// Apply a Spotify taste profile (from Threshold's derived signal) to synth params.
+// Contract mapping from @threshold-labs/integration SDK:
+//   danceability  → energy + BPM nudge
+//   valence       → warmth + key (major if high, minor if low)
+//   acousticness  → space (open/airy vs tight/electronic)
+//   energy        → complexity + drive
+//   instrumentalness → lead volume weight
+function applyTasteProfile(profile) {
+  if (!profile) return;
+  const { energy, valence, danceability, acousticness, instrumentalness } = profile;
+  const vibe = VIBES[currentVibe];
+
+  // Blend: 55% vibe preset, 45% personal taste
+  baseParams.energy     = Math.round(vibe.energy     * 0.55 + (danceability * 0.5 + energy * 0.5) * 100 * 0.45);
+  baseParams.warmth     = Math.round(vibe.warmth     * 0.55 + valence       * 100                  * 0.45);
+  baseParams.space      = Math.round(vibe.space      * 0.55 + acousticness  * 100                  * 0.45);
+  baseParams.complexity = Math.round(vibe.complexity * 0.55 + energy        * 100                  * 0.45);
+
+  // Key: high valence tilts toward major scales
+  if (valence > 0.6 && vibe.key === 'minor') {
+    scaleNotes = VIBES['energy'].scales; // major
+  } else if (valence < 0.4 && vibe.key === 'major') {
+    scaleNotes = VIBES['chill'].scales;  // minor
+  }
+
+  // BPM nudge from danceability — ±12 BPM max
+  baseParams.bpm = Math.round(vibe.bpm + (danceability - 0.5) * 24);
+
+  // Lead volume influenced by instrumentalness (more instrumental → more lead)
+  if (leadGain) {
+    const leadLevel = 0.03 + instrumentalness * 0.07;
+    leadGain.gain.setTargetAtTime(leadLevel, audioCtx?.currentTime || 0, 0.5);
+  }
+
+  addLog(`Synth tuned: energy ${Math.round(energy*100)} valence ${Math.round(valence*100)} dance ${Math.round(danceability*100)}`, 'flow');
+}
+
 async function fetchPersonalSeeds() {
   try {
+    // ── Playback queue: still fetched directly from Spotify ──
     const [tracksData, artistsData] = await Promise.all([
       spotifyFetch('/me/top/tracks?limit=30&time_range=medium_term'),
       spotifyFetch('/me/top/artists?limit=10&time_range=medium_term'),
     ]);
-    const tracks  = tracksData.items  || [];
-    const artists = artistsData.items || [];
+    personalSeeds.uris      = (tracksData.items  || []).map(t => t.uri);
+    personalSeeds.tracks    = (tracksData.items  || []).slice(0, 5).map(t => t.id);
+    personalSeeds.artistIds = (artistsData.items || []).slice(0, 3).map(a => a.id);
+    const topNames = (artistsData.items || []).slice(0, 2).map(a => a.name).join(', ');
+    addLog(`Queue loaded: ${topNames || 'ready'}`, 'flow');
 
-    // Store full URIs — used as playback queue
-    personalSeeds.uris      = tracks.map(t => t.uri);
-    personalSeeds.tracks    = tracks.slice(0, 5).map(t => t.id);
-    personalSeeds.artistIds = artists.slice(0, 3).map(a => a.id);
-
-    const topArtistNames = artists.slice(0, 2).map(a => a.name).join(', ');
-    addLog(`Taste profile: ${topArtistNames || 'loaded'}`, 'flow');
-
-    // ── Compute AudioFeatureProfile from top track IDs ──────────────────────
-    // Issue #5 path 2: FlowDJ fetches audio features, derives profile locally,
-    // personalizes synth params, and pushes result as spotify-taste signal.
-    const sampleIds = personalSeeds.tracks.slice(0, 5);
-    if (sampleIds.length > 0) {
-      try {
-        const featData = await spotifyFetch(`/audio-features?ids=${sampleIds.join(',')}`);
-        const feats = (featData.audio_features || []).filter(Boolean);
-        if (feats.length > 0) {
-          const avg = k => feats.reduce((s, f) => s + (f[k] || 0), 0) / feats.length;
-          const profile = {
-            energy:           +avg('energy').toFixed(3),
-            valence:          +avg('valence').toFixed(3),
-            danceability:     +avg('danceability').toFixed(3),
-            acousticness:     +avg('acousticness').toFixed(3),
-            instrumentalness: +avg('instrumentalness').toFixed(3),
-            tempo:            +avg('tempo').toFixed(1),
-          };
-
-          // Personalize base synth params from taste profile
-          // valence → warmth (sad=cold, happy=warm), energy → energy, acousticness → space
-          const vibeBase = VIBES[currentVibe];
-          baseParams.warmth  = Math.round(vibeBase.warmth  * 0.6 + profile.valence * 40);
-          baseParams.energy  = Math.round(vibeBase.energy  * 0.6 + profile.energy  * 40);
-          baseParams.space   = Math.round(vibeBase.space   * 0.6 + profile.acousticness * 40);
-
-          addLog(`Synth tuned to your taste (energy ${Math.round(profile.energy*100)}, valence ${Math.round(profile.valence*100)})`, 'flow');
-
-          // ── Push as spotify-taste signal (Pattern 1) ──────────────────────
-          const topGenres = [...new Set(artists.flatMap(a => a.genres || []))].slice(0, 5);
-          const tastePayload = {
-            topGenres,
-            audioFeatureProfile: profile,
-            topArtists: artists.slice(0, 5).map(a => ({ name: a.name, genres: a.genres?.slice(0, 3) || [] })),
-            pushedAt: new Date().toISOString(),
-          };
-          thresholdPost('/api/signals/spotify-taste', tastePayload)
-            .catch(e => console.warn('[FlowDJ] spotify-taste push failed:', e.message));
+    // ── Taste profile: POST /api/integrations/derive/spotify-taste ──
+    // Threshold fetches top artists/tracks server-side, derives genre ranking
+    // + audio feature profile, pushes as spotify-taste signal, returns immediately.
+    // Then read via Pattern 2. Local derivation removed (issue #5 path 2 → path 1).
+    try {
+      const deriveRes = await thresholdPost('/api/integrations/derive/spotify-taste', {});
+      if (deriveRes.ok) {
+        const { signal } = await deriveRes.json();
+        applyTasteProfile(signal?.audioFeatureProfile);
+      } else {
+        // Derive failed — try reading a previously stored signal via Pattern 2
+        const readRes = await thresholdGet('/api/signals/spotify-taste');
+        if (readRes.ok) {
+          const { signal } = await readRes.json();
+          applyTasteProfile(signal?.audioFeatureProfile);
         }
-      } catch(e) {
-        // Audio features unavailable — degrade gracefully, seeds still usable
-        console.warn('[FlowDJ] Audio features fetch failed:', e.message);
       }
+    } catch(e) {
+      // Taste derivation unavailable — synth runs on vibe defaults
+      console.warn('[FlowDJ] Taste profile unavailable:', e.message);
     }
   } catch(e) {
-    // Full seed fetch failed — silently degrade to untuned synth
+    // Seed fetch failed — silent, playback falls back to recently-played
   }
 }
 
@@ -2705,9 +2715,8 @@ document.getElementById('connectBtn').addEventListener('click', () => {
 });
 
 document.getElementById('connectViaThreshold').addEventListener('click', () => {
-  // /connect redirect flow not yet implemented on Threshold side (SDK issue #6).
-  // Route to /integrations where users can connect Spotify and get a connect token.
-  window.open('https://thresholdlabs.io/integrations', '_blank');
+  const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
+  window.location.href = `${THRESHOLD_API}/connect?app_id=${THRESHOLD_APP_ID}&source=spotify&redirect_uri=${redirectUri}`;
 });
 
 document.getElementById('connectCancel').addEventListener('click', () => {
