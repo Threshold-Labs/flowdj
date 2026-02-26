@@ -407,18 +407,15 @@
 <div class="connect-backdrop" id="connectBackdrop">
   <div class="connect-modal">
     <h3>Connect your Spotify</h3>
-    <p>FlowDJ uses Threshold to access your Spotify data. You stay in control — authorize once, revoke anytime.</p>
+    <p>FlowDJ uses Threshold to access your Spotify data. Connect at <a href="https://thresholdlabs.io/integrations" target="_blank">thresholdlabs.io/integrations</a>, then paste your connect token below.</p>
     <div id="connectStatus" class="connect-status" style="display:none"></div>
     <button class="primary" id="connectViaThreshold" style="width:100%;padding:10px;border-radius:10px;border:1px solid #1DB954;background:rgba(29,185,84,0.12);color:#1DB954;font-family:inherit;font-size:13px;cursor:pointer;margin-bottom:10px;">
-      Connect via Threshold
+      Open Threshold Integrations ↗
     </button>
-    <details style="margin-bottom:8px;">
-      <summary style="font-size:11px;color:var(--text-dim);cursor:pointer;">Already have a token? Paste it here</summary>
-      <input type="text" id="thldTokenInput" placeholder="thld_ct_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" style="margin-top:8px;">
-      <div class="modal-actions" style="margin-top:8px;">
-        <button id="connectSave">Connect</button>
-      </div>
-    </details>
+    <input type="text" id="thldTokenInput" placeholder="thld_ct_xxxxxxxx  — paste connect token" autocomplete="off" style="margin-bottom:8px;">
+    <div class="modal-actions" style="margin-top:0;margin-bottom:8px;">
+      <button id="connectSave" class="primary">Connect</button>
+    </div>
     <button id="connectCancel" style="width:100%;background:none;border:none;color:var(--text-dim);font-family:inherit;font-size:11px;cursor:pointer;padding:4px;">Cancel</button>
   </div>
 </div>
@@ -2708,9 +2705,9 @@ document.getElementById('connectBtn').addEventListener('click', () => {
 });
 
 document.getElementById('connectViaThreshold').addEventListener('click', () => {
-  const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
-  const url = `${THRESHOLD_API}/connect?app_id=${THRESHOLD_APP_ID}&source=spotify&redirect_uri=${redirectUri}`;
-  window.location.href = url;
+  // /connect redirect flow not yet implemented on Threshold side (SDK issue #6).
+  // Route to /integrations where users can connect Spotify and get a connect token.
+  window.open('https://thresholdlabs.io/integrations', '_blank');
 });
 
 document.getElementById('connectCancel').addEventListener('click', () => {
